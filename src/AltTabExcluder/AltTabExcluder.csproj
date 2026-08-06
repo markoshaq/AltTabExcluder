@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <!-- WinForms for the NotifyIcon tray control and message-only window -->
+    <UseWindowsForms>true</UseWindowsForms>
+
+    <RootNamespace>AltTabExcluder</RootNamespace>
+    <AssemblyName>AltTabExcluder</AssemblyName>
+
+    <!-- 64-bit so we can interact with 64-bit target processes' windows -->
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <ApplicationManifest>AltTabExcluder.manifest</ApplicationManifest>
+    <ApplicationIcon>assets\app.ico</ApplicationIcon>
+
+    <!-- PerMonitorV2 DPI awareness (configured via project property, not manifest) -->
+    <ApplicationHighDpiMode>SystemAware</ApplicationHighDpiMode>
+
+    <Version>0.1.0</Version>
+    <Company>AltTabExcluder</Company>
+    <Product>AltTabExcluder</Product>
+    <Description>Exclude specific windows from the Alt+Tab switcher.</Description>
+  </PropertyGroup>
+
+  <!-- CsWin32: Win32 P/Invoke source generator. Bindings are generated from NativeMethods.txt. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Windows.CsWin32" Version="0.3.298">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <AdditionalFiles Include="NativeMethods.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="assets\app.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

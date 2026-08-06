@@ -1,0 +1,51 @@
+## .NET build output
+bin/
+obj/
+
+## Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+*.userprefs
+
+## NuGet
+*.nupkg
+*.snupkg
+.nuget/
+
+## Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+## Publish
+publish/
+*.[Pp]ublish.xml
+*.azurePubxml
+*.pubxml
+*.publishproj
+PublishProfiles/
+
+## CsWin32 generated temp files
+*.GeneratedMSBuildEditorConfig.editorconfig
+
+## OS files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+## Secrets / local config
+appsettings.*.json
+*.pfx
+*.key
