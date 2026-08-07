@@ -1,4 +1,3 @@
-using System;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 
@@ -11,9 +10,15 @@ namespace AltTabExcluder.Services;
 /// </summary>
 public static class ElevationDetector
 {
+    // The elevation state of the current process never changes during its
+    // lifetime, so we compute it once at class init (first access) and cache it.
+    // This avoids 4 P/Invokes (OpenProcess + OpenProcessToken +
+    // GetTokenInformation + CloseHandle × 2) on every WinEvent callback.
+    private static readonly bool _currentProcessElevated =
+        IsProcessElevated((uint)Environment.ProcessId);
+
     /// <summary>True when the current AltTabExcluder process is running elevated.</summary>
-    public static bool IsCurrentProcessElevated()
-        => IsProcessElevated((uint)Environment.ProcessId);
+    public static bool IsCurrentProcessElevated() => _currentProcessElevated;
 
     /// <summary>
     /// True when the process owning <paramref name="hwnd"/> is running elevated.

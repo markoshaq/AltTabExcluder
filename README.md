@@ -18,7 +18,8 @@ AltTabExcluder runs quietly in your system tray. Press a hotkey to hide the
 currently focused window from Alt+Tab, or open the tray menu to pick from a
 list of all open windows. Want Spotify, Discord, or your email client to
 *always* stay out of the switcher? Toggle **Always Exclude** once and every
-future window from that app is hidden automatically.
+future window from that app is hidden automatically. Settings (hotkey,
+startup, restart-as-admin) are grouped under a **Settings** submenu.
 
 It works by toggling the native Win32 `WS_EX_TOOLWINDOW` /
 `WS_EX_APPWINDOW` extended window styles — no injection, no DLL hooking,
@@ -126,7 +127,7 @@ that can be distributed without installing .NET on the target machine.
 
 ### Change the hotkey
 
-1. Right-click the tray icon &rarr; **Change Hotkey...**
+1. Right-click the tray icon &rarr; **Settings** &rarr; **Change Hotkey...**
 2. Press your desired key combination in the dialog. At least one modifier
    (Ctrl/Alt/Shift/Win) is required.
 3. Click **OK**. If the combination is already in use by another app,
@@ -134,7 +135,7 @@ that can be distributed without installing .NET on the target machine.
 
 ### Enable or disable the hotkey
 
-1. Right-click the tray icon.
+1. Right-click the tray icon &rarr; **Settings**.
 2. Click the **Hotkey** item to toggle it on or off.
 3. The state is saved — if you disable the hotkey, it stays disabled on the
    next launch.

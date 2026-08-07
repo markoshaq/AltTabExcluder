@@ -1,9 +1,4 @@
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Drawing;
-using System.IO;
-using System.Linq;
 using System.Windows.Forms;
 using AltTabExcluder.Services;
 
@@ -12,8 +7,8 @@ namespace AltTabExcluder.Tray;
 /// <summary>
 /// Owns the system-tray <see cref="NotifyIcon"/> and its context menu. All user
 /// interaction happens here: Quick Exclude (toggle live windows), Always Exclude
-/// (persist rules per process), Restore All, hotkey toggle, startup toggle,
-/// restart-as-admin, about, and exit.
+/// (persist rules per process), Restore All, Settings (hotkey toggle, change
+/// hotkey, startup toggle, restart-as-admin), about, and exit.
 /// </summary>
 public sealed class TrayIconManager : IDisposable
 {
@@ -85,6 +80,9 @@ public sealed class TrayIconManager : IDisposable
 
         menu.Items.Add(new ToolStripSeparator());
 
+        // Settings submenu: hotkey toggle, change hotkey, startup, restart-as-admin.
+        var settingsItem = new ToolStripMenuItem("Settings");
+
         // Hotkey section: enable/disable toggle + change hotkey.
         _hotkeyItem = new ToolStripMenuItem("Hotkey: Win+Alt+X (toggle focused)")
         {
@@ -97,16 +95,16 @@ public sealed class TrayIconManager : IDisposable
             _hotkeyItem.Checked = !_hotkeyItem.Checked;
             HotkeyToggleRequested?.Invoke(this, _hotkeyItem.Checked);
         };
-        menu.Items.Add(_hotkeyItem);
+        settingsItem.DropDownItems.Add(_hotkeyItem);
 
         var changeHotkeyItem = new ToolStripMenuItem("Change Hotkey...")
         {
             ToolTipText = "Set a custom key combination for the toggle hotkey.",
         };
         changeHotkeyItem.Click += (_, _) => ChangeHotkeyRequested?.Invoke(this, EventArgs.Empty);
-        menu.Items.Add(changeHotkeyItem);
+        settingsItem.DropDownItems.Add(changeHotkeyItem);
 
-        menu.Items.Add(new ToolStripSeparator());
+        settingsItem.DropDownItems.Add(new ToolStripSeparator());
 
         // Run at Windows startup (HKCU\...\Run).
         var startupItem = new ToolStripMenuItem("Run at Windows startup")
@@ -116,13 +114,13 @@ public sealed class TrayIconManager : IDisposable
         };
         startupItem.Click += (_, _) => StartupToggleRequested?.Invoke(this, startupItem.Checked);
         _startupItem = startupItem;
+        settingsItem.DropDownItems.Add(_startupItem);
 
-        menu.Items.Add(_startupItem);
         var restartAdminItem = new ToolStripMenuItem("Restart as Administrator");
         restartAdminItem.Click += (_, _) => RestartAsAdministrator();
-        menu.Items.Add(restartAdminItem);
+        settingsItem.DropDownItems.Add(restartAdminItem);
 
-        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(settingsItem);
 
         // About: opens the About dialog with app info, how-it-works, and credit.
         var aboutItem = new ToolStripMenuItem("About...");
@@ -136,11 +134,14 @@ public sealed class TrayIconManager : IDisposable
         _notifyIcon.ContextMenuStrip = menu;
 
         // Populate submenus every time the main menu opens so lists are current.
+        // Enumerate once and share between both submenus to avoid double
+        // EnumWindows + process lookups on every menu open.
         menu.Opening += (_, _) =>
         {
             WindowManager.PruneStaleHandles();
-            PopulateQuickExclude();
-            PopulateAlwaysExclude();
+            var windows = WindowEnumerationService.GetOpenWindows();
+            PopulateQuickExclude(windows);
+            PopulateAlwaysExclude(windows);
         };
 
         // Keep the menu open when an exclude item is clicked, but allow other
@@ -164,11 +165,10 @@ public sealed class TrayIconManager : IDisposable
     /// windows) show a checkmark but are greyed out — they weren't excluded by
     /// us, so toggling them is disabled to avoid the double-click issue.
     /// </summary>
-    private void PopulateQuickExclude()
+    private void PopulateQuickExclude(IReadOnlyList<WindowInfo> windows)
     {
         ClearSubmenu(_quickExcludeItem);
 
-        var windows = WindowEnumerationService.GetOpenWindows();
         if (windows.Count == 0)
         {
             _quickExcludeItem.DropDownItems.Add("(no open windows)").Enabled = false;
@@ -177,17 +177,23 @@ public sealed class TrayIconManager : IDisposable
 
         foreach (var w in windows)
         {
+            // Query live exclusion state — the WindowInfo snapshot may be stale
+            // if we're refreshing after an Always Exclude click changed styles.
+            // IsWindowExcluded is a single GetWindowLongPtr P/Invoke (cheap).
+            bool isExcluded = WindowManager.IsWindowExcluded(w.Hwnd);
+            bool wasExcludedByUs = WindowManager.WasExcludedByUs(w.Hwnd);
+
             string title = w.WindowTitle;
             if (title.Length > 50)
                 title = title[..47] + "...";
 
             var item = new ToolStripMenuItem($"{w.ProcessName} — {title}")
             {
-                Checked = w.IsExcluded,
+                Checked = isExcluded,
                 Tag = w.Hwnd,
             };
 
-            if (w.IsExcluded && !w.WasExcludedByUs)
+            if (isExcluded && !wasExcludedByUs)
             {
                 // Naturally a tool window — not excluded by us. Disable toggling.
                 item.Enabled = false;
@@ -210,7 +216,6 @@ public sealed class TrayIconManager : IDisposable
 
             item.Click += OnQuickExcludeItemClicked;
             _quickExcludeItem.DropDownItems.Add(item);
-            w.ProcessIcon?.Dispose();
         }
 
         _quickExcludeItem.DropDown.Closing += ExcludeDropDown_Closing;
@@ -220,6 +225,18 @@ public sealed class TrayIconManager : IDisposable
     {
         if (sender is not ToolStripMenuItem item || item.Tag is not IntPtr hwnd)
             return;
+
+        // UIPI blocks style changes on elevated target windows when we're not
+        // elevated. Detect this up front and warn the user rather than silently
+        // doing nothing.
+        if (ElevationDetector.IsWindowElevated(hwnd) && !ElevationDetector.IsCurrentProcessElevated())
+        {
+            ShowNotification("AltTabExcluder — elevation required",
+                "That window is running as Administrator. Restart AltTabExcluder as Administrator (tray menu) to toggle it.",
+                ToolTipIcon.Warning);
+            _excludeClicked = true;
+            return;
+        }
 
         try
         {
@@ -241,12 +258,11 @@ public sealed class TrayIconManager : IDisposable
     /// for processes that aren't currently running — so users can see and
     /// remove persistent rules even when the app is closed.
     /// </summary>
-    private void PopulateAlwaysExclude()
+    private void PopulateAlwaysExclude(IReadOnlyList<WindowInfo> windows)
     {
         ClearSubmenu(_alwaysExcludeItem);
 
         // Collect unique process names from currently open windows.
-        var windows = WindowEnumerationService.GetOpenWindows();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var entries = new List<(string Name, Icon? Icon)>();
 
@@ -254,8 +270,6 @@ public sealed class TrayIconManager : IDisposable
         {
             if (seen.Add(w.ProcessName))
                 entries.Add((w.ProcessName, w.ProcessIcon));
-            else
-                w.ProcessIcon?.Dispose();
         }
 
         if (entries.Count == 0)
@@ -282,7 +296,6 @@ public sealed class TrayIconManager : IDisposable
                         item.Image = sized.ToBitmap();
                     }
                     catch { /* icon unusable */ }
-                    icon?.Dispose();
                 }
 
                 item.Click += OnAlwaysExcludeItemClicked;
@@ -330,12 +343,25 @@ public sealed class TrayIconManager : IDisposable
         bool newState = !item.Checked;
         _rules.SetRule(procName, newState);
 
-        // Apply to currently open windows of this process.
+        // Apply to currently open windows of this process. Enumerate once and
+        // reuse the list for both the apply pass and the Quick Exclude refresh
+        // below — avoids a second EnumWindows + process-lookup pass.
         var windows = WindowEnumerationService.GetOpenWindows();
+        bool weAreElevated = ElevationDetector.IsCurrentProcessElevated();
+        int skipped = 0;
+
         foreach (var w in windows)
         {
             if (!string.Equals(w.ProcessName, procName, StringComparison.OrdinalIgnoreCase))
                 continue;
+
+            // Skip elevated targets when we're not elevated — UIPI blocks the
+            // style change.
+            if (!weAreElevated && ElevationDetector.IsWindowElevated(w.Hwnd))
+            {
+                skipped++;
+                continue;
+            }
 
             if (newState)
             {
@@ -353,10 +379,17 @@ public sealed class TrayIconManager : IDisposable
 
         item.Checked = newState;
 
+        if (skipped > 0)
+        {
+            ShowNotification("AltTabExcluder — elevation required",
+                $"{skipped} elevated window(s) of '{procName}' could not be toggled. Restart as Administrator to manage them.",
+                ToolTipIcon.Warning);
+        }
+
         // Refresh Quick Exclude so its checkmarks reflect the windows we just
-        // excluded/un-excluded. Both submenus are populated once on menu open;
-        // without this, Quick Exclude stays stale until the menu is reopened.
-        PopulateQuickExclude();
+        // excluded/un-excluded. Reuse the already-enumerated list instead of
+        // calling GetOpenWindows() a second time.
+        PopulateQuickExclude(windows);
 
         _excludeClicked = true;
     }
@@ -426,27 +459,15 @@ public sealed class TrayIconManager : IDisposable
     public void ShowNotification(string title, string message, ToolTipIcon icon = ToolTipIcon.Info)
         => _notifyIcon.ShowBalloonTip(3000, title, message, icon);
 
+    /// <summary>
+    /// Raises the <see cref="RestartRequested"/> event. The actual process
+    /// restart (with UAC elevation) is handled by <c>Program.OnRestartRequested</c>,
+    /// which releases the single-instance mutex before starting the new process
+    /// so the elevated instance can acquire it.
+    /// </summary>
     private void RestartAsAdministrator()
     {
-        try
-        {
-            var exe = Environment.ProcessPath;
-            if (string.IsNullOrEmpty(exe))
-                return;
-
-            var psi = new ProcessStartInfo
-            {
-                FileName = exe,
-                UseShellExecute = true,
-                Verb = "runas",
-            };
-            Process.Start(psi);
-            RestartRequested?.Invoke(this, EventArgs.Empty);
-        }
-        catch (System.ComponentModel.Win32Exception)
-        {
-            // User declined the UAC prompt.
-        }
+        RestartRequested?.Invoke(this, EventArgs.Empty);
     }
 
     public void Dispose()

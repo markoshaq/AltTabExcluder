@@ -1,4 +1,3 @@
-using System;
 using System.Drawing;
 
 namespace AltTabExcluder.Services;
@@ -13,7 +12,9 @@ public sealed record WindowInfo
     public string ProcessName { get; init; } = string.Empty;
     public string WindowTitle { get; init; } = string.Empty;
 
-    /// <summary>WinForms-friendly icon for tray menu items. Caller disposes.</summary>
+    /// <summary>WinForms-friendly icon for tray menu items. Owned by the
+    /// icon cache in <see cref="WindowEnumerationService"/> — callers must
+    /// NOT dispose this icon.</summary>
     public Icon? ProcessIcon { get; init; }
 
     /// <summary>True when the window currently carries the WS_EX_TOOLWINDOW style.</summary>

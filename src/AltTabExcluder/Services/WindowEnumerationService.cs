@@ -1,8 +1,4 @@
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Drawing;
-using System.IO;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 
@@ -27,6 +23,20 @@ public static class WindowEnumerationService
         "NotifyIconOverflowWindow",          // Tray overflow flyout (Win10)
         "TopLevelWindowForOverflowXamlIsland", // Tray overflow flyout (Win11 22H2+)
     };
+
+    // Process names we never want to show. These are system shell components
+    // that use generic window classes (e.g. Windows.UI.Core.CoreWindow) shared
+    // by real UWP apps, so they can't be filtered by class name alone.
+    private static readonly HashSet<string> IgnoredProcesses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "TextInputHost",   // Text input panel (emoji picker, handwriting, IME)
+    };
+
+    // Cache of process icons keyed by executable path. Avoids repeated
+    // Icon.ExtractAssociatedIcon file reads every time the tray menu opens.
+    // Icons are owned by the cache for the app lifetime — callers must not
+    // dispose them. Memory cost is negligible (~1-4 KB per unique process).
+    private static readonly Dictionary<string, Icon?> _iconCache = new(StringComparer.OrdinalIgnoreCase);
 
     public static IReadOnlyList<WindowInfo> GetOpenWindows()
     {
@@ -100,6 +110,10 @@ public static class WindowEnumerationService
             // Process may have exited between enumeration and lookup.
         }
 
+        // Skip system shell processes that use generic window classes.
+        if (IgnoredProcesses.Contains(procName))
+            return;
+
         results.Add(new WindowInfo
         {
             Hwnd = (IntPtr)hwnd,
@@ -114,23 +128,32 @@ public static class WindowEnumerationService
 
     /// <summary>
     /// Extracts a <see cref="System.Drawing.Icon"/> from the process's
-    /// executable. The icon is returned undisposed; the caller owns it.
+    /// executable. Results are cached by <paramref name="imagePath"/> for the
+    /// app lifetime — the returned icon is owned by the cache and must not be
+    /// disposed by the caller.
     /// </summary>
     private static Icon? TryLoadIcon(string? imagePath)
     {
         if (string.IsNullOrEmpty(imagePath) || !File.Exists(imagePath))
             return null;
 
+        // Fast path: serve from cache.
+        if (_iconCache.TryGetValue(imagePath, out var cached))
+            return cached;
+
+        Icon? icon = null;
         try
         {
-            var icon = Icon.ExtractAssociatedIcon(imagePath);
+            icon = Icon.ExtractAssociatedIcon(imagePath);
             if (icon is null || icon.Handle == IntPtr.Zero)
-                return null;
-            return icon;
+                icon = null;
         }
         catch
         {
-            return null;
+            icon = null;
         }
+
+        _iconCache[imagePath] = icon;
+        return icon;
     }
 }

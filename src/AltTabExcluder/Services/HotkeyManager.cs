@@ -1,4 +1,3 @@
-using System;
 using System.Windows.Forms;
 using Windows.Win32;
 using Windows.Win32.Foundation;
@@ -38,10 +37,12 @@ public sealed class HotkeyManager : IDisposable
     /// <summary>
     /// Configures the hotkey to use. Must be called before <see cref="Register"/>
     /// or after <see cref="Unregister"/> to change an active registration.
+    /// The NoRepeat flag (0x4000) is stripped — it is added internally by
+    /// <see cref="Register"/> and should not be stored in <see cref="Modifiers"/>.
     /// </summary>
     public void SetHotkey(uint modifiers, uint key)
     {
-        Modifiers = modifiers;
+        Modifiers = modifiers & ~MOD_NOREPEAT;
         Key = key;
     }
 
@@ -56,6 +57,9 @@ public sealed class HotkeyManager : IDisposable
         if (Key == 0)
             return false;
 
+        // Destroy any previous window so re-registering (e.g. after a hotkey
+        // change) doesn't leak a native HWND each time.
+        _window?.DestroyHandle();
         _window = new HotkeyWindow();
         _window.HotkeyReceived += () => HotkeyPressed?.Invoke(this, EventArgs.Empty);
 

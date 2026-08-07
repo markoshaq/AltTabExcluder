@@ -74,7 +74,10 @@ dotnet publish -c Release -p:PublishProfile=SingleFile
 Produces a single `AltTabExcluder.exe` (~68 MB) at
 `bin\x64\Release\net8.0-windows\win-x64\publish\` that includes the .NET
 runtime — no .NET installation required on the target machine. The profile
-is at `Properties/PublishProfiles/SingleFile.pubxml`.
+is at `Properties/PublishProfiles/SingleFile.pubxml`. Trimming is not
+enabled (WinForms uses reflection heavily; the SDK blocks it with
+`NETSDK1175`). ReadyToRun was evaluated but increased the EXE by ~4 MB for
+a negligible startup gain on a small tray app — not worth the trade.
 
 ## Architecture
 
@@ -113,7 +116,10 @@ is at `Properties/PublishProfiles/SingleFile.pubxml`.
 
 - `WindowEnumerationService.cs` — `EnumWindows`-based snapshot of open
   visible top-level windows, enriched with process name + icon. Filters out
-  the desktop, taskbar, IME, tray overflow flyout, and the app's own windows.
+  the desktop, taskbar, IME, tray overflow flyout, the text input panel
+  (`TextInputHost`), and the app's own windows. Process icons are cached by
+  executable path for the app lifetime so repeated menu opens don't re-read
+  EXE files.
 - `WindowInfo.cs` — immutable record describing one enumerated window
   (HWND, PID, process name, title, icon, exclusion state).
 - `HotkeyManager.cs` — registers a configurable global hotkey (default
@@ -154,13 +160,13 @@ is at `Properties/PublishProfiles/SingleFile.pubxml`.
   items: **Quick Exclude** (submenu of all open windows with live toggle
   checkmarks), **Always Exclude** (submenu of running processes + saved
   rules, with persistent per-process toggle), **Restore All** (un-exclude
-  every window AltTabExcluder hid), **Hotkey** (enable/disable toggle),
-  **Change Hotkey...** (opens `HotkeyPickerDialog`), **Run at Windows
-  startup** (checkbox), **Restart as Administrator**, **About...** (opens
-  `AboutDialog`), **Exit**. Submenus are repopulated on every open so lists
-  stay current. Excludes submenus stay open after a click so the user can
-  toggle multiple items. The tray icon tooltip shows the current hotkey.
-  Implements `IDisposable`.
+  every window AltTabExcluder hid), **Settings** (submenu: **Hotkey**
+  enable/disable toggle, **Change Hotkey...** opens `HotkeyPickerDialog`,
+  **Run at Windows startup** checkbox, **Restart as Administrator**),
+  **About...** (opens `AboutDialog`), **Exit**. Submenus are repopulated on
+  every open so lists stay current. Excludes submenus stay open after a
+  click so the user can toggle multiple items. The tray icon tooltip shows
+  the current hotkey. Implements `IDisposable`.
 
 ### UI (`UI/`)
 
