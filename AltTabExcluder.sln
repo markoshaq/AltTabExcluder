@@ -1,8 +1,12 @@
-Microsoft Visual Studio Solution File, Format Version 12.00
+﻿Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AltTabExcluder", "src\AltTabExcluder\AltTabExcluder.csproj", "{7B5E2C9A-1F4D-4E8A-9C3B-2D1A6F5E7A90}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{18D1A7FC-93F6-4569-A396-99459AB027BD}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AltTabExcluder.Tests", "tests\AltTabExcluder.Tests\AltTabExcluder.Tests.csproj", "{1BDF5714-4D0A-458F-AF4A-4AC9837CDC56}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -20,11 +24,22 @@ Global
 		{7B5E2C9A-1F4D-4E8A-9C3B-2D1A6F5E7A90}.Debug|x64.Build.0 = Debug|x64
 		{7B5E2C9A-1F4D-4E8A-9C3B-2D1A6F5E7A90}.Release|x64.ActiveCfg = Release|x64
 		{7B5E2C9A-1F4D-4E8A-9C3B-2D1A6F5E7A90}.Release|x64.Build.0 = Release|x64
+		{1BDF5714-4D0A-458F-AF4A-4AC9837CDC56}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1BDF5714-4D0A-458F-AF4A-4AC9837CDC56}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1BDF5714-4D0A-458F-AF4A-4AC9837CDC56}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1BDF5714-4D0A-458F-AF4A-4AC9837CDC56}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1BDF5714-4D0A-458F-AF4A-4AC9837CDC56}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{1BDF5714-4D0A-458F-AF4A-4AC9837CDC56}.Debug|x64.Build.0 = Debug|Any CPU
+		{1BDF5714-4D0A-458F-AF4A-4AC9837CDC56}.Release|x64.ActiveCfg = Release|Any CPU
+		{1BDF5714-4D0A-458F-AF4A-4AC9837CDC56}.Release|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {A1B2C3D4-E5F6-4A5B-8C9D-0E1F2A3B4C5D}
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{1BDF5714-4D0A-458F-AF4A-4AC9837CDC56} = {18D1A7FC-93F6-4569-A396-99459AB027BD}
 	EndGlobalSection
 EndGlobal

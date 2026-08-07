@@ -19,7 +19,7 @@ public sealed class HotkeyPickerDialog : Form
     private IntPtr _hook = IntPtr.Zero;
     private LowLevelKeyboardProc? _hookProc;
 
-    /// <summary>Selected modifier flags (Win=0x0008, Alt=0x0001, Ctrl=0x0002, Shift=0x0004).</summary>
+    /// <summary>Selected modifier flags (see <see cref="Win32Constants"/> MOD_* values).</summary>
     public uint Modifiers { get; private set; }
 
     /// <summary>Selected virtual key code.</summary>
@@ -30,7 +30,7 @@ public sealed class HotkeyPickerDialog : Form
 
     public HotkeyPickerDialog(uint currentModifiers, uint currentKey)
     {
-        Modifiers = currentModifiers & ~0x4000u; // strip NoRepeat for display
+        Modifiers = currentModifiers & ~Win32Constants.MOD_NOREPEAT; // strip NoRepeat for display
         Key = currentKey;
 
         Text = "Change Hotkey";
@@ -102,8 +102,6 @@ public sealed class HotkeyPickerDialog : Form
     private const int WH_KEYBOARD_LL = 13;
     private const int WM_KEYDOWN = 0x0100;
     private const int WM_SYSKEYDOWN = 0x0104;
-    private const uint VK_LWIN = 0x5B;
-    private const uint VK_RWIN = 0x5C;
 
     private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
 
@@ -146,15 +144,15 @@ public sealed class HotkeyPickerDialog : Form
                 return CallNextHookEx(_hook, nCode, wParam, lParam);
 
             // Escape closes the dialog (let it through).
-            if (vk == 0x1B)
+            if (vk == Win32Constants.VK_ESCAPE)
                 return CallNextHookEx(_hook, nCode, wParam, lParam);
 
             // Build modifier flags from currently-held keys.
             uint mods = 0;
-            if (IsKeyDown(0xA0) || IsKeyDown(0xA1)) mods |= 0x0004; // Shift
-            if (IsKeyDown(0xA2) || IsKeyDown(0xA3)) mods |= 0x0002; // Ctrl
-            if (IsKeyDown(0xA4) || IsKeyDown(0xA5)) mods |= 0x0001; // Alt
-            if (IsKeyDown(VK_LWIN) || IsKeyDown(VK_RWIN)) mods |= 0x0008; // Win
+            if (IsKeyDown(Win32Constants.VK_LSHIFT) || IsKeyDown(Win32Constants.VK_RSHIFT)) mods |= Win32Constants.MOD_SHIFT;
+            if (IsKeyDown(Win32Constants.VK_LCONTROL) || IsKeyDown(Win32Constants.VK_RCONTROL)) mods |= Win32Constants.MOD_CONTROL;
+            if (IsKeyDown(Win32Constants.VK_LMENU) || IsKeyDown(Win32Constants.VK_RMENU)) mods |= Win32Constants.MOD_ALT;
+            if (IsKeyDown(Win32Constants.VK_LWIN) || IsKeyDown(Win32Constants.VK_RWIN)) mods |= Win32Constants.MOD_WIN;
 
             Modifiers = mods;
             Key = vk;
@@ -168,7 +166,10 @@ public sealed class HotkeyPickerDialog : Form
     }
 
     private static bool IsModifierKey(uint vk)
-        => vk is 0xA0 or 0xA1 or 0xA2 or 0xA3 or 0xA4 or 0xA5 or VK_LWIN or VK_RWIN;
+        => vk is Win32Constants.VK_LSHIFT or Win32Constants.VK_RSHIFT
+            or Win32Constants.VK_LCONTROL or Win32Constants.VK_RCONTROL
+            or Win32Constants.VK_LMENU or Win32Constants.VK_RMENU
+            or Win32Constants.VK_LWIN or Win32Constants.VK_RWIN;
 
     [DllImport("user32.dll")]
     private static extern short GetAsyncKeyState(int vKey);

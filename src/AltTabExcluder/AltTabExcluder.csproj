@@ -42,4 +42,10 @@
     <EmbeddedResource Include="assets\app.ico" />
   </ItemGroup>
 
+  <!-- Allow the test project to access internal members (e.g. RuleEngine's
+       test-only constructor with a custom file path). -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="AltTabExcluder.Tests" />
+  </ItemGroup>
+
 </Project>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat code coverage">
+        <Configuration>
+          <Format>cobertura</Format>
+          <UseSourceLink>false</UseSourceLink>
+          <Include>[AltTabExcluder]*</Include>
+          <ExcludeByFile>**/Program.cs;**/UI/AboutDialog.cs;**/UI/HotkeyPickerDialog.cs;**/Tray/TrayIconManager.cs;**/Services/ElevationDetector.cs;**/Services/HotkeyManager.cs;**/Services/StartupManager.cs;**/Services/WindowEnumerationService.cs;**/Services/WindowEventWatcher.cs;**/Services/NativeElevationInterop.cs;**/Services/ExclusionService.cs;**/WindowInfo.cs</ExcludeByFile>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>

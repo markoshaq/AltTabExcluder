@@ -31,9 +31,10 @@ bld/
 publish/
 *.[Pp]ublish.xml
 *.azurePubxml
-*.pubxml
 *.publishproj
-PublishProfiles/
+# Ignore pubxml generally, but keep project publish profiles.
+*.pubxml
+!**/Properties/PublishProfiles/*.pubxml
 
 ## CsWin32 generated temp files
 *.GeneratedMSBuildEditorConfig.editorconfig
@@ -49,3 +50,7 @@ $RECYCLE.BIN/
 appsettings.*.json
 *.pfx
 *.key
+
+## Coverage results
+coverage/
+coverage.cobertura.xml

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
 using System.Windows.Forms;
+using AltTabExcluder.Services;
 
 namespace AltTabExcluder.UI;
 
@@ -132,7 +133,7 @@ public sealed class AboutDialog : Form
         devLabel.LinkClicked += (_, _) =>
         {
             try { Process.Start(new ProcessStartInfo("https://github.com/markoshaq") { UseShellExecute = true }); }
-            catch { /* best effort */ }
+            catch (Exception ex) { AppLogger.LogWarning(ex, "Failed to open GitHub link"); }
         };
         Controls.Add(devLabel);
 
@@ -161,14 +162,14 @@ public sealed class AboutDialog : Form
             if (stream is not null)
                 return new Icon(stream);
         }
-        catch { /* fall through to file-based */ }
+        catch (Exception ex) { AppLogger.LogDebug($"Failed to load embedded app icon: {ex.Message}"); }
 
         // Fallback: load from disk (development / non-embedded scenario).
         string path = Path.Combine(AppContext.BaseDirectory, "assets", "app.ico");
         if (File.Exists(path))
         {
             try { return new Icon(path); }
-            catch { /* fall through */ }
+            catch (Exception ex) { AppLogger.LogDebug($"Failed to load app icon from disk: {ex.Message}"); }
         }
         return null;
     }

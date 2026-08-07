@@ -5,11 +5,20 @@ using Windows.Win32.UI.WindowsAndMessaging;
 namespace AltTabExcluder;
 
 /// <summary>
-/// Core Win32 window-style logic for excluding a window from the Alt+Tab switcher.
+/// Pure Win32 window-style logic for excluding a window from the Alt+Tab switcher.
+/// This class is <em>stateless</em> — all tracking of which HWNDs we excluded
+/// lives in <see cref="Services.ExclusionTracker"/> / <see cref="Services.ExclusionService"/>.
 ///
+/// <para>
 /// Hiding from Alt+Tab is achieved by applying <see cref="WS_EX_TOOLWINDOW"/> and
 /// stripping <see cref="WS_EX_APPWINDOW"/>. Showing again does the reverse. These
 /// style changes take effect immediately for the shell's task switcher.
+/// </para>
+/// <para>
+/// The style-bit computation (<see cref="ComputeExcludedStyle"/> /
+/// <see cref="ComputeVisibleStyle"/>) is pure and unit-testable without any
+/// Win32 interaction.
+/// </para>
 /// </summary>
 public static class WindowManager
 {
@@ -22,89 +31,43 @@ public static class WindowManager
     /// <summary>Extended window style: app window (forced onto the taskbar/Alt+Tab).</summary>
     public const uint WS_EX_APPWINDOW = 0x00040000;
 
-    /// <summary>
-    /// Tracks HWNDs that AltTabExcluder has excluded. Used to distinguish windows
-    /// we excluded from windows that naturally have WS_EX_TOOLWINDOW (tool palettes,
-    /// helper windows, etc.) — only the former can be un-excluded by the user.
-    /// Populated from persisted settings on startup.
-    /// </summary>
-    private static readonly HashSet<IntPtr> ExcludedByUs = new();
-
-    /// <summary>Loads persisted excluded-by-us HWNDs into the tracking set.</summary>
-    public static void LoadExcludedByUs(IEnumerable<long> handles)
-    {
-        foreach (long h in handles)
-            ExcludedByUs.Add((IntPtr)h);
-    }
-
-    /// <summary>Returns the current set of excluded-by-us HWNDs for persistence.</summary>
-    public static IEnumerable<long> GetExcludedByUsForSave()
-        => ExcludedByUs.Select(h => h.ToInt64());
+    // ─── Pure style-bit math (no Win32 calls, unit-testable) ─────────────
 
     /// <summary>
-    /// Removes HWNDs from the tracking set that are no longer valid windows.
-    /// Call this periodically (e.g. when the tray menu opens) to prevent stale
-    /// entries from accumulating and to avoid false positives from HWND recycling.
+    /// Computes the extended style that hides a window from Alt+Tab: adds
+    /// <see cref="WS_EX_TOOLWINDOW"/>, strips <see cref="WS_EX_APPWINDOW"/>.
     /// </summary>
-    public static void PruneStaleHandles()
-    {
-        ExcludedByUs.RemoveWhere(h => !PInvoke.IsWindow((HWND)h));
-    }
+    public static uint ComputeExcludedStyle(uint currentStyle)
+        => (currentStyle | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW;
+
+    /// <summary>
+    /// Computes the extended style that restores a window to Alt+Tab: strips
+    /// <see cref="WS_EX_TOOLWINDOW"/>, adds <see cref="WS_EX_APPWINDOW"/>.
+    /// </summary>
+    public static uint ComputeVisibleStyle(uint currentStyle)
+        => (currentStyle & ~WS_EX_TOOLWINDOW) | WS_EX_APPWINDOW;
+
+    /// <summary>
+    /// Returns <c>true</c> if <paramref name="style"/> carries the
+    /// <see cref="WS_EX_TOOLWINDOW"/> bit (i.e. the window is excluded from
+    /// Alt+Tab).
+    /// </summary>
+    public static bool IsStyleExcluded(uint style)
+        => (style & WS_EX_TOOLWINDOW) != 0;
+
+    // ─── Win32 style read/write ──────────────────────────────────────────
 
     /// <summary>
     /// Returns <c>true</c> when <paramref name="hwnd"/> is currently excluded from
     /// Alt+Tab (i.e. it carries the <see cref="WS_EX_TOOLWINDOW"/> style).
     /// </summary>
     public static bool IsWindowExcluded(IntPtr hwnd)
-    {
-        uint ex = GetExtendedStyle(hwnd);
-        return (ex & WS_EX_TOOLWINDOW) != 0;
-    }
+        => IsStyleExcluded(GetExtendedStyle(hwnd));
 
     /// <summary>
-    /// Returns <c>true</c> if this window was excluded by AltTabExcluder (not just
-    /// naturally carrying WS_EX_TOOLWINDOW).
+    /// Reads the current extended window style of <paramref name="hwnd"/>.
     /// </summary>
-    public static bool WasExcludedByUs(IntPtr hwnd)
-        => ExcludedByUs.Contains(hwnd);
-
-    /// <summary>
-    /// Toggles Alt+Tab visibility for <paramref name="hwnd"/>. When excluded, the
-    /// window is restored to the switcher; when visible, it is hidden from it.
-    /// </summary>
-    public static void ToggleAltTabVisibility(IntPtr hwnd)
-    {
-        uint ex = GetExtendedStyle(hwnd);
-        uint newStyle = IsWindowExcluded(hwnd)
-            ? (ex & ~WS_EX_TOOLWINDOW) | WS_EX_APPWINDOW   // show again
-            : (ex | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW;  // hide
-
-        SetExtendedStyle(hwnd, newStyle);
-
-        if (IsWindowExcluded(hwnd))
-            ExcludedByUs.Add(hwnd);
-        else
-            ExcludedByUs.Remove(hwnd);
-    }
-
-    /// <summary>Explicitly sets whether a window is excluded from Alt+Tab.</summary>
-    public static void SetExcluded(IntPtr hwnd, bool excluded)
-    {
-        uint ex = GetExtendedStyle(hwnd);
-        uint newStyle = excluded
-            ? (ex | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW
-            : (ex & ~WS_EX_TOOLWINDOW) | WS_EX_APPWINDOW;
-
-        if (newStyle != ex)
-            SetExtendedStyle(hwnd, newStyle);
-
-        if (excluded)
-            ExcludedByUs.Add(hwnd);
-        else
-            ExcludedByUs.Remove(hwnd);
-    }
-
-    private static uint GetExtendedStyle(IntPtr hwnd)
+    public static uint GetExtendedStyle(IntPtr hwnd)
     {
         // GetWindowLongPtr returns LONG_PTR (pointer-sized). The extended style is a
         // 32-bit value, so the upper bits are unused; cast down to uint.
@@ -112,9 +75,12 @@ public static class WindowManager
         return (uint)raw;
     }
 
-    private static void SetExtendedStyle(IntPtr hwnd, uint style)
+    /// <summary>
+    /// Applies the extended window style and broadcasts a frame change so the
+    /// shell re-evaluates the window's taskbar/Alt+Tab presence immediately.
+    /// </summary>
+    public static void SetExtendedStyle(IntPtr hwnd, uint style)
     {
-        // Apply the new extended style.
         PInvoke.SetWindowLongPtr((HWND)hwnd, GWL_EXSTYLE, (nint)style);
 
         // Broadcast a frame change so the shell re-evaluates the window's
@@ -124,5 +90,38 @@ public static class WindowManager
             SET_WINDOW_POS_FLAGS.SWP_NOMOVE | SET_WINDOW_POS_FLAGS.SWP_NOSIZE |
             SET_WINDOW_POS_FLAGS.SWP_NOZORDER | SET_WINDOW_POS_FLAGS.SWP_NOACTIVATE |
             SET_WINDOW_POS_FLAGS.SWP_FRAMECHANGED);
+    }
+
+    /// <summary>
+    /// Toggles the Alt+Tab visibility style of <paramref name="hwnd"/>. Returns
+    /// <c>true</c> if the window is now excluded, <c>false</c> if it is now visible.
+    /// Does <em>not</em> update any tracking set — the caller is responsible for
+    /// that (see <see cref="Services.ExclusionService.Toggle"/>).
+    /// </summary>
+    public static bool ToggleStyle(IntPtr hwnd)
+    {
+        uint ex = GetExtendedStyle(hwnd);
+        bool isExcluded = IsStyleExcluded(ex);
+        uint newStyle = isExcluded
+            ? ComputeVisibleStyle(ex)
+            : ComputeExcludedStyle(ex);
+        SetExtendedStyle(hwnd, newStyle);
+        return !isExcluded; // now excluded if it wasn't before, and vice versa
+    }
+
+    /// <summary>
+    /// Sets the Alt+Tab visibility style of <paramref name="hwnd"/> to excluded
+    /// or visible. Does <em>not</em> update any tracking set — the caller is
+    /// responsible for that (see <see cref="Services.ExclusionService.SetExcluded"/>).
+    /// </summary>
+    public static void SetStyle(IntPtr hwnd, bool excluded)
+    {
+        uint ex = GetExtendedStyle(hwnd);
+        uint newStyle = excluded
+            ? ComputeExcludedStyle(ex)
+            : ComputeVisibleStyle(ex);
+
+        if (newStyle != ex)
+            SetExtendedStyle(hwnd, newStyle);
     }
 }

@@ -38,7 +38,16 @@ public static class WindowEnumerationService
     // dispose them. Memory cost is negligible (~1-4 KB per unique process).
     private static readonly Dictionary<string, Icon?> _iconCache = new(StringComparer.OrdinalIgnoreCase);
 
-    public static IReadOnlyList<WindowInfo> GetOpenWindows()
+    /// <summary>
+    /// Enumerates all open visible top-level windows, enriched with process
+    /// name, icon, and exclusion state.
+    /// </summary>
+    /// <param name="exclusion">
+    /// The exclusion service used to populate <see cref="WindowInfo.IsExcluded"/>
+    /// and <see cref="WindowInfo.WasExcludedByUs"/>. Pass <c>null</c> to skip
+    /// exclusion-state population (both fields default to <c>false</c>).
+    /// </param>
+    public static IReadOnlyList<WindowInfo> GetOpenWindows(ExclusionService? exclusion = null)
     {
         var results = new List<WindowInfo>();
         int currentPid = Environment.ProcessId;
@@ -49,11 +58,12 @@ public static class WindowEnumerationService
             {
                 try
                 {
-                    AddIfRelevant(results, hwnd, currentPid);
+                    AddIfRelevant(results, hwnd, currentPid, exclusion);
                 }
-                catch
+                catch (Exception ex)
                 {
                     // Never let a single bad window abort enumeration.
+                    AppLogger.LogWarning(ex, "EnumWindows callback failed for a window");
                 }
                 return true;
             }, (LPARAM)0);
@@ -69,7 +79,8 @@ public static class WindowEnumerationService
         return results;
     }
 
-    private static unsafe void AddIfRelevant(List<WindowInfo> results, HWND hwnd, int currentPid)
+    private static unsafe void AddIfRelevant(
+        List<WindowInfo> results, HWND hwnd, int currentPid, ExclusionService? exclusion)
     {
         if (!PInvoke.IsWindowVisible(hwnd))
             return;
@@ -103,11 +114,12 @@ public static class WindowEnumerationService
             using var proc = Process.GetProcessById((int)pid);
             procName = proc.ProcessName;
             try { imagePath = proc.MainModule?.FileName; }
-            catch { /* elevated / inaccessible - leave path null */ }
+            catch (Exception ex) { AppLogger.LogDebug($"Could not read MainModule for PID {pid}: {ex.Message}"); }
         }
-        catch
+        catch (Exception ex)
         {
             // Process may have exited between enumeration and lookup.
+            AppLogger.LogDebug($"Process lookup failed for PID {pid}: {ex.Message}");
         }
 
         // Skip system shell processes that use generic window classes.
@@ -121,8 +133,8 @@ public static class WindowEnumerationService
             ProcessName = procName,
             WindowTitle = title,
             ProcessIcon = TryLoadIcon(imagePath),
-            IsExcluded = WindowManager.IsWindowExcluded((IntPtr)hwnd),
-            WasExcludedByUs = WindowManager.WasExcludedByUs((IntPtr)hwnd),
+            IsExcluded = exclusion?.IsExcluded((IntPtr)hwnd) ?? false,
+            WasExcludedByUs = exclusion?.WasExcludedByUs((IntPtr)hwnd) ?? false,
         });
     }
 
@@ -148,8 +160,9 @@ public static class WindowEnumerationService
             if (icon is null || icon.Handle == IntPtr.Zero)
                 icon = null;
         }
-        catch
+        catch (Exception ex)
         {
+            AppLogger.LogDebug($"Icon extraction failed for {imagePath}: {ex.Message}");
             icon = null;
         }
 

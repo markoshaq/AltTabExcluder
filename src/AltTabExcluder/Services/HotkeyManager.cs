@@ -15,7 +15,6 @@ namespace AltTabExcluder.Services;
 public sealed class HotkeyManager : IDisposable
 {
     private const int WM_HOTKEY = 0x0312;
-    private const uint MOD_NOREPEAT = 0x4000;
     private const int HotkeyId = 0xA7E;
 
     private HotkeyWindow? _window;
@@ -37,12 +36,13 @@ public sealed class HotkeyManager : IDisposable
     /// <summary>
     /// Configures the hotkey to use. Must be called before <see cref="Register"/>
     /// or after <see cref="Unregister"/> to change an active registration.
-    /// The NoRepeat flag (0x4000) is stripped — it is added internally by
-    /// <see cref="Register"/> and should not be stored in <see cref="Modifiers"/>.
+    /// The NoRepeat flag (<see cref="Win32Constants.MOD_NOREPEAT"/>) is stripped —
+    /// it is added internally by <see cref="Register"/> and should not be stored
+    /// in <see cref="Modifiers"/>.
     /// </summary>
     public void SetHotkey(uint modifiers, uint key)
     {
-        Modifiers = modifiers & ~MOD_NOREPEAT;
+        Modifiers = modifiers & ~Win32Constants.MOD_NOREPEAT;
         Key = key;
     }
 
@@ -64,8 +64,10 @@ public sealed class HotkeyManager : IDisposable
         _window.HotkeyReceived += () => HotkeyPressed?.Invoke(this, EventArgs.Empty);
 
         bool ok = PInvoke.RegisterHotKey((HWND)_window.Handle, HotkeyId,
-            (HOT_KEY_MODIFIERS)(Modifiers | MOD_NOREPEAT), Key);
+            (HOT_KEY_MODIFIERS)(Modifiers | Win32Constants.MOD_NOREPEAT), Key);
         _registered = ok;
+        if (!ok)
+            AppLogger.LogWarning($"RegisterHotKey failed for {AppSettings.FormatHotkey(Modifiers, Key)} (another app may own it)");
         return ok;
     }
 
@@ -75,7 +77,7 @@ public sealed class HotkeyManager : IDisposable
             return;
 
         try { PInvoke.UnregisterHotKey((HWND)_window.Handle, HotkeyId); }
-        catch { /* best effort on teardown */ }
+        catch (Exception ex) { AppLogger.LogWarning(ex, "UnregisterHotKey failed during teardown"); }
         _registered = false;
     }
 

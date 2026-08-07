@@ -3,6 +3,11 @@ using Windows.Win32.Foundation;
 
 namespace AltTabExcluder.Services;
 
+// Note: ElevationDetector intentionally does NOT log — it is called on every
+// WinEvent callback (high frequency) and logging would flood the log. Failures
+// here are expected (processes that exit between PID lookup and token query)
+// and are handled by returning false.
+
 /// <summary>
 /// Detects whether a target window's process (and/or the current process) is
 /// running elevated, so the app can warn the user that UIPI will block style

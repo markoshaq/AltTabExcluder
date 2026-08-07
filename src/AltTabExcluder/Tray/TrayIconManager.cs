@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Windows.Forms;
 using AltTabExcluder.Services;
 
@@ -18,6 +17,7 @@ public sealed class TrayIconManager : IDisposable
     private readonly ToolStripMenuItem _alwaysExcludeItem;
     private readonly ToolStripMenuItem _startupItem;
     private readonly RuleEngine _rules;
+    private readonly ExclusionService _exclusion;
 
     /// <summary>Flag set when a Quick/Always Exclude item is clicked, so the
     /// parent menu's Closing handler knows to keep the menu open.</summary>
@@ -43,9 +43,10 @@ public sealed class TrayIconManager : IDisposable
     /// <summary>Raised when the user wants to restore all excluded windows.</summary>
     public event EventHandler? RestoreAllRequested;
 
-    public TrayIconManager(RuleEngine rules)
+    public TrayIconManager(RuleEngine rules, ExclusionService exclusion)
     {
         _rules = rules;
+        _exclusion = exclusion;
 
         _notifyIcon = new NotifyIcon
         {
@@ -138,8 +139,8 @@ public sealed class TrayIconManager : IDisposable
         // EnumWindows + process lookups on every menu open.
         menu.Opening += (_, _) =>
         {
-            WindowManager.PruneStaleHandles();
-            var windows = WindowEnumerationService.GetOpenWindows();
+            _exclusion.PruneStale();
+            var windows = WindowEnumerationService.GetOpenWindows(_exclusion);
             PopulateQuickExclude(windows);
             PopulateAlwaysExclude(windows);
         };
@@ -179,9 +180,9 @@ public sealed class TrayIconManager : IDisposable
         {
             // Query live exclusion state — the WindowInfo snapshot may be stale
             // if we're refreshing after an Always Exclude click changed styles.
-            // IsWindowExcluded is a single GetWindowLongPtr P/Invoke (cheap).
-            bool isExcluded = WindowManager.IsWindowExcluded(w.Hwnd);
-            bool wasExcludedByUs = WindowManager.WasExcludedByUs(w.Hwnd);
+            // IsExcluded is a single GetWindowLongPtr P/Invoke (cheap).
+            bool isExcluded = _exclusion.IsExcluded(w.Hwnd);
+            bool wasExcludedByUs = _exclusion.WasExcludedByUs(w.Hwnd);
 
             string title = w.WindowTitle;
             if (title.Length > 50)
@@ -211,7 +212,10 @@ public sealed class TrayIconManager : IDisposable
                     using var sized = new Icon(w.ProcessIcon, 16, 16);
                     item.Image = sized.ToBitmap();
                 }
-                catch { /* icon unusable */ }
+                catch (Exception ex)
+                {
+                    AppLogger.LogDebug($"Failed to render tray icon for {w.ProcessName}: {ex.Message}");
+                }
             }
 
             item.Click += OnQuickExcludeItemClicked;
@@ -240,12 +244,12 @@ public sealed class TrayIconManager : IDisposable
 
         try
         {
-            WindowManager.ToggleAltTabVisibility(hwnd);
-            item.Checked = WindowManager.IsWindowExcluded(hwnd);
+            _exclusion.Toggle(hwnd);
+            item.Checked = _exclusion.IsExcluded(hwnd);
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Quick exclude toggle failed: {ex.Message}");
+            AppLogger.LogWarning(ex, $"Quick exclude toggle failed for HWND {hwnd}");
         }
         _excludeClicked = true;
     }
@@ -295,7 +299,10 @@ public sealed class TrayIconManager : IDisposable
                         using var sized = new Icon(icon, 16, 16);
                         item.Image = sized.ToBitmap();
                     }
-                    catch { /* icon unusable */ }
+                    catch (Exception ex)
+                    {
+                        AppLogger.LogDebug($"Failed to render tray icon for {name}: {ex.Message}");
+                    }
                 }
 
                 item.Click += OnAlwaysExcludeItemClicked;
@@ -346,7 +353,7 @@ public sealed class TrayIconManager : IDisposable
         // Apply to currently open windows of this process. Enumerate once and
         // reuse the list for both the apply pass and the Quick Exclude refresh
         // below — avoids a second EnumWindows + process-lookup pass.
-        var windows = WindowEnumerationService.GetOpenWindows();
+        var windows = WindowEnumerationService.GetOpenWindows(_exclusion);
         bool weAreElevated = ElevationDetector.IsCurrentProcessElevated();
         int skipped = 0;
 
@@ -366,14 +373,14 @@ public sealed class TrayIconManager : IDisposable
             if (newState)
             {
                 // Excluding: always safe to apply.
-                WindowManager.SetExcluded(w.Hwnd, true);
+                _exclusion.SetExcluded(w.Hwnd, true);
             }
             else
             {
                 // Un-excluding: only strip WS_EX_TOOLWINDOW from windows we
                 // excluded — don't touch natural tool windows.
                 if (w.WasExcludedByUs)
-                    WindowManager.SetExcluded(w.Hwnd, false);
+                    _exclusion.SetExcluded(w.Hwnd, false);
             }
         }
 
@@ -443,14 +450,17 @@ public sealed class TrayIconManager : IDisposable
             if (stream is not null)
                 return new Icon(stream);
         }
-        catch { /* fall through to file-based or default */ }
+        catch (Exception ex)
+        {
+            AppLogger.LogDebug($"Failed to load embedded tray icon: {ex.Message}");
+        }
 
         // Fallback: load from disk (development / non-embedded scenario).
         string path = Path.Combine(AppContext.BaseDirectory, "assets", "app.ico");
         if (File.Exists(path))
         {
             try { return new Icon(path); }
-            catch { /* fall through to default */ }
+            catch (Exception ex) { AppLogger.LogDebug($"Failed to load tray icon from disk: {ex.Message}"); }
         }
         return SystemIcons.Application;
     }
@@ -461,9 +471,10 @@ public sealed class TrayIconManager : IDisposable
 
     /// <summary>
     /// Raises the <see cref="RestartRequested"/> event. The actual process
-    /// restart (with UAC elevation) is handled by <c>Program.OnRestartRequested</c>,
-    /// which releases the single-instance mutex before starting the new process
-    /// so the elevated instance can acquire it.
+    /// restart (with UAC elevation) is handled by
+    /// <see cref="TrayEventCoordinator.OnRestartRequested"/>, which releases
+    /// the single-instance mutex before starting the new process so the
+    /// elevated instance can acquire it.
     /// </summary>
     private void RestartAsAdministrator()
     {

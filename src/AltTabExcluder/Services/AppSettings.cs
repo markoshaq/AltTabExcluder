@@ -16,17 +16,17 @@ public sealed class AppSettings
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
-    private static readonly string DirPath = Path.Combine(
+    private static readonly string DefaultDirPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "AltTabExcluder");
 
-    private static readonly string FilePath = Path.Combine(DirPath, "settings.json");
+    private static readonly string DefaultFilePath = Path.Combine(DefaultDirPath, "settings.json");
 
-    /// <summary>Modifier flags (Win=0x0008, Alt=0x0001, Ctrl=0x0002, Shift=0x0004, NoRepeat=0x4000).</summary>
-    public uint HotkeyModifiers { get; set; } = 0x0008 | 0x0001 | 0x4000; // Win+Alt+NoRepeat
+    /// <summary>Modifier flags (see <see cref="Win32Constants"/> MOD_* values).</summary>
+    public uint HotkeyModifiers { get; set; } = Win32Constants.DefaultHotkeyModifiers;
 
     /// <summary>Virtual key code (e.g. 0x58 = 'X').</summary>
-    public uint HotkeyKey { get; set; } = 0x58;
+    public uint HotkeyKey { get; set; } = Win32Constants.DefaultHotkeyKey;
 
     /// <summary>Whether the global hotkey was enabled when the app last exited.
     /// Persisted so the user's enable/disable choice survives restarts.</summary>
@@ -40,74 +40,97 @@ public sealed class AppSettings
     /// <summary>Human-readable label for the current hotkey.</summary>
     public string HotkeyLabel => FormatHotkey(HotkeyModifiers, HotkeyKey);
 
-    /// <summary>Loads settings from disk, or returns defaults if no file exists.</summary>
-    public static AppSettings Load()
+    /// <summary>Loads settings from the default path, or returns defaults if no file exists.</summary>
+    public static AppSettings Load() => Load(DefaultFilePath);
+
+    /// <summary>
+    /// Loads settings from <paramref name="filePath"/>, or returns defaults if
+    /// no file exists. Internal — used by tests to redirect to a temp path.
+    /// </summary>
+    internal static AppSettings Load(string filePath)
     {
         try
         {
-            if (File.Exists(FilePath))
+            if (File.Exists(filePath))
             {
-                var json = File.ReadAllText(FilePath);
+                var json = File.ReadAllText(filePath);
                 var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions);
                 if (settings is not null)
                     return settings;
             }
         }
-        catch { /* corrupt/inaccessible — use defaults */ }
+        catch (Exception ex)
+        {
+            AppLogger.LogWarning(ex, "Failed to load settings — using defaults");
+        }
 
         return new AppSettings();
     }
 
-    /// <summary>Saves settings to disk atomically.</summary>
-    public void Save()
+    /// <summary>Saves settings to the default path atomically.</summary>
+    public void Save() => Save(DefaultFilePath);
+
+    /// <summary>
+    /// Saves settings to <paramref name="filePath"/> atomically. Internal —
+    /// used by tests to redirect to a temp path.
+    /// </summary>
+    internal void Save(string filePath)
     {
         try
         {
-            Directory.CreateDirectory(DirPath);
+            string dirPath = Path.GetDirectoryName(filePath) ?? string.Empty;
+            Directory.CreateDirectory(dirPath);
             var json = JsonSerializer.Serialize(this, JsonOptions);
-            var tmp = FilePath + ".tmp";
+            var tmp = filePath + ".tmp";
             File.WriteAllText(tmp, json);
-            if (File.Exists(FilePath))
-                File.Replace(tmp, FilePath, destinationBackupFileName: null);
+            if (File.Exists(filePath))
+                File.Replace(tmp, filePath, destinationBackupFileName: null);
             else
-                File.Move(tmp, FilePath);
+                File.Move(tmp, filePath);
         }
-        catch { /* best-effort persistence */ }
+        catch (Exception ex)
+        {
+            AppLogger.LogWarning(ex, "Failed to save settings");
+        }
     }
 
     /// <summary>Formats a modifier+key combo as a human-readable string.</summary>
     public static string FormatHotkey(uint modifiers, uint key)
     {
-        var parts = new List<string>();
-        if ((modifiers & 0x0008) != 0) parts.Add("Win");
-        if ((modifiers & 0x0002) != 0) parts.Add("Ctrl");
-        if ((modifiers & 0x0004) != 0) parts.Add("Shift");
-        if ((modifiers & 0x0001) != 0) parts.Add("Alt");
+        // Strip NoRepeat — it's an internal flag, not something the user picks.
+        modifiers &= ~Win32Constants.MOD_NOREPEAT;
 
-        string keyName = key switch
-        {
-            0x08 => "Backspace",
-            0x09 => "Tab",
-            0x0D => "Enter",
-            0x1B => "Esc",
-            0x20 => "Space",
-            >= 0x30 and <= 0x39 => ((char)key).ToString(),      // 0-9
-            >= 0x41 and <= 0x5A => ((char)key).ToString(),      // A-Z
-            >= 0x70 and <= 0x7B => $"F{key - 0x6F}",             // F1-F12
-            0xBA => ";",
-            0xBB => "+",
-            0xBC => ",",
-            0xBD => "-",
-            0xBE => ".",
-            0xBF => "/",
-            0xC0 => "`",
-            0xDB => "[",
-            0xDC => "\\",
-            0xDD => "]",
-            _ => $"0x{key:X2}",
-        };
+        var parts = new List<string>(5);
+        if ((modifiers & Win32Constants.MOD_WIN) != 0) parts.Add("Win");
+        if ((modifiers & Win32Constants.MOD_CONTROL) != 0) parts.Add("Ctrl");
+        if ((modifiers & Win32Constants.MOD_SHIFT) != 0) parts.Add("Shift");
+        if ((modifiers & Win32Constants.MOD_ALT) != 0) parts.Add("Alt");
 
-        parts.Add(keyName);
+        parts.Add(KeyToString(key));
         return string.Join("+", parts);
     }
+
+    /// <summary>Converts a virtual-key code to its display name.</summary>
+    public static string KeyToString(uint key) => key switch
+    {
+        Win32Constants.VK_BACK => "Backspace",
+        Win32Constants.VK_TAB => "Tab",
+        Win32Constants.VK_RETURN => "Enter",
+        Win32Constants.VK_ESCAPE => "Esc",
+        Win32Constants.VK_SPACE => "Space",
+        >= 0x30 and <= 0x39 => ((char)key).ToString(),      // 0-9
+        >= 0x41 and <= 0x5A => ((char)key).ToString(),      // A-Z
+        >= Win32Constants.VK_F1 and <= Win32Constants.VK_F12 => $"F{key - 0x6F}", // F1-F12
+        Win32Constants.VK_OEM_1 => ";",
+        Win32Constants.VK_OEM_PLUS => "+",
+        Win32Constants.VK_OEM_COMMA => ",",
+        Win32Constants.VK_OEM_MINUS => "-",
+        Win32Constants.VK_OEM_PERIOD => ".",
+        Win32Constants.VK_OEM_2 => "/",
+        Win32Constants.VK_OEM_3 => "`",
+        Win32Constants.VK_OEM_4 => "[",
+        Win32Constants.VK_OEM_5 => "\\",
+        Win32Constants.VK_OEM_6 => "]",
+        _ => $"0x{key:X2}",
+    };
 }

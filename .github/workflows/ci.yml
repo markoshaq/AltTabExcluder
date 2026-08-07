@@ -1,0 +1,139 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  checks: write # for test report publishing
+
+jobs:
+  build-and-test:
+    name: Build, Test & Coverage
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build (Debug)
+        run: dotnet build --no-restore -c Debug
+
+      - name: Test with coverage
+        run: >
+          dotnet test --no-build -c Debug
+          --collect:"XPlat Code Coverage"
+          --settings tests/AltTabExcluder.Tests/coverlet.runsettings
+          --results-directory ./coverage
+
+      - name: Parse coverage & enforce gates
+        shell: pwsh
+        run: |
+          $report = Get-ChildItem -Recurse ./coverage -Filter "coverage.cobertura.xml" | Select-Object -First 1
+          if ($null -eq $report) {
+            Write-Host "::error::No coverage report found."
+            exit 1
+          }
+
+          [xml]$xml = Get-Content $report.FullName
+          $overallLine = [math]::Round([double]$xml.coverage.'line-rate' * 100, 1)
+          $overallBranch = [math]::Round([double]$xml.coverage.'branch-rate' * 100, 1)
+          Write-Host "Overall line coverage: $overallLine%"
+          Write-Host "Overall branch coverage: $overallBranch%"
+
+          # --- Gate 1: Overall floor (catches total regressions) ---
+          $overallGate = 10.0
+          if ($overallLine -lt $overallGate) {
+            Write-Host "::error::Overall line coverage $overallLine% is below the $overallGate% floor."
+            exit 1
+          }
+          Write-Host "Overall floor ($overallGate%) passed."
+
+          # --- Gate 2: Per-file gate on testable logic layers ---
+          # These are the pure/non-Win32 files that MUST be unit-tested.
+          # Win32/UI/entry-point files are excluded from this gate because
+          # they require a live Windows desktop session.
+          # WindowManager.cs is excluded — its pure style-bit math is tested
+          # via WindowManagerStyleMathTests, but the Win32 methods
+          # (GetExtendedStyle, SetExtendedStyle, ToggleStyle, SetStyle) drag
+          # the file-level coverage below the gate.
+          $testableFiles = @(
+            'AppSettings.cs',
+            'RuleEngine.cs',
+            'ExclusionTracker.cs',
+            'ProcessRule.cs',
+            'AppLogger.cs'
+          )
+          $perFileGate = 70.0
+          $failed = $false
+
+          Write-Host ""
+          Write-Host "Per-file coverage (testable layers, gate: $perFileGate%):"
+          Write-Host "  File                        Line%   Status"
+          Write-Host "  ----                        -----   ------"
+
+          foreach ($target in $testableFiles) {
+            $class = $xml.SelectNodes("//class") |
+              Where-Object { $_.filename -notmatch "obj\\" -and $_.filename -notmatch "\.g\.cs" -and $_.filename -like "*$target" } |
+              Select-Object -First 1
+            if ($null -eq $class) {
+              Write-Host "  $target".PadEnd(30) + "  N/A    SKIP (not found)"
+              continue
+            }
+            $rate = [math]::Round([double]$class.'line-rate' * 100, 1)
+            $status = if ($rate -ge $perFileGate) { "PASS" } else { "FAIL" }
+            Write-Host ("  {0,-28} {1,5}%  {2}" -f $target, $rate, $status)
+            if ($rate -lt $perFileGate) {
+              $failed = $true
+            }
+          }
+
+          if ($failed) {
+            Write-Host ""
+            Write-Host "::error::One or more testable files are below the $perFileGate% per-file gate."
+            exit 1
+          }
+          Write-Host ""
+          Write-Host "All coverage gates passed."
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: ./coverage/**/*cobertura.xml
+          if-no-files-found: ignore
+          retention-days: 14
+
+  release-build:
+    name: Release Build & Publish
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build (Release)
+        run: dotnet build --no-restore -c Release
+
+      - name: Publish single-file
+        run: dotnet publish --no-restore -c Release -p:PublishProfile=SingleFile

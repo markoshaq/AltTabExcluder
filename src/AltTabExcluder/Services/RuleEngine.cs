@@ -21,14 +21,36 @@ public sealed class RuleEngine
     private readonly string _filePath;
     private readonly string _dirPath;
     private readonly object _gate = new();
+    private readonly Action<IntPtr, bool>? _applyExclusion;
     private Dictionary<string, ProcessRule> _rules; // key = lowercased process name
 
-    public RuleEngine()
+    /// <summary>
+    /// Creates a RuleEngine that persists to the default
+    /// <c>%APPDATA%\AltTabExcluder\rules.json</c> path.
+    /// </summary>
+    /// <param name="applyExclusion">
+    /// Optional callback invoked by <see cref="ApplyTo"/> to apply a rule to a
+    /// window. When <c>null</c>, <see cref="ApplyTo"/> performs no style change
+    /// (useful for testing the persistence layer in isolation).
+    /// </param>
+    public RuleEngine(Action<IntPtr, bool>? applyExclusion = null)
     {
         _dirPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "AltTabExcluder");
         _filePath = Path.Combine(_dirPath, "rules.json");
+        _applyExclusion = applyExclusion;
+        _rules = Load();
+    }
+
+    /// <summary>
+    /// Creates a RuleEngine with a custom file path (for testing).
+    /// </summary>
+    internal RuleEngine(string filePath, Action<IntPtr, bool>? applyExclusion = null)
+    {
+        _filePath = filePath;
+        _dirPath = Path.GetDirectoryName(filePath) ?? string.Empty;
+        _applyExclusion = applyExclusion;
         _rules = Load();
     }
 
@@ -102,7 +124,7 @@ public sealed class RuleEngine
         if (rule is null)
             return null;
 
-        WindowManager.SetExcluded(hwnd, rule.Exclude);
+        _applyExclusion?.Invoke(hwnd, rule.Exclude);
         return rule;
     }
 
@@ -129,9 +151,10 @@ public sealed class RuleEngine
             }
             return dict;
         }
-        catch
+        catch (Exception ex)
         {
             // Corrupt/inaccessible file: start empty rather than crashing the app.
+            AppLogger.LogWarning(ex, $"Failed to load rules from {_filePath} — starting empty");
             return new Dictionary<string, ProcessRule>(StringComparer.OrdinalIgnoreCase);
         }
     }
@@ -152,9 +175,10 @@ public sealed class RuleEngine
             else
                 File.Move(tmp, _filePath);
         }
-        catch
+        catch (Exception ex)
         {
             // Persistence is best-effort; never crash the tray app on IO failure.
+            AppLogger.LogWarning(ex, "Failed to save rules");
         }
     }
 }

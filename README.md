@@ -8,7 +8,12 @@ A lightweight Windows system-tray utility that lets you hide any window
 from the Alt+Tab switcher — and optionally remember that choice so future
 windows from the same app are excluded automatically.
 
-[Features](#features) &nbsp;&middot;&nbsp; [Install](#install) &nbsp;&middot;&nbsp; [Usage](#usage) &nbsp;&middot;&nbsp; [Build](#build-from-source) &nbsp;&middot;&nbsp; [How It Works](#how-it-works)
+[![CI](https://github.com/markoshaq/AltTabExcluder/actions/workflows/ci.yml/badge.svg)](https://github.com/markoshaq/AltTabExcluder/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4.svg)](https://dotnet.microsoft.com/download/dotnet/8.0)
+[![Tests](https://img.shields.io/badge/tests-102%20passing-brightgreen.svg)](#development)
+
+[Features](#features) &nbsp;&middot;&nbsp; [Screenshots](#screenshots) &nbsp;&middot;&nbsp; [Install](#install) &nbsp;&middot;&nbsp; [Usage](#usage) &nbsp;&middot;&nbsp; [Build](#build-from-source) &nbsp;&middot;&nbsp; [How It Works](#how-it-works)
 
 </div>
 
@@ -33,13 +38,15 @@ window manager.
   state persists across restarts, and the tray icon tooltip shows the
   current hotkey on hover.
 - **Quick Exclude** — browse all open windows from the tray menu and toggle
-  each one with a click. Checkmarks show current state.
+  each one with a click. Checkmarks show current state. Process icons are
+  shown next to each window for easy identification.
 - **Always Exclude** — save a per-process rule so every future window from
   that app is auto-excluded the moment it opens. No need to re-toggle each
-  time you launch the app.
+  time you launch the app. Saved rules for apps that aren't currently
+  running appear under a separator so you can manage them.
 - **Restore All** — un-exclude every window AltTabExcluder has hidden, in one
   click. Useful when you've excluded a bunch of windows and want to reset
-  quickly.
+  quickly. A notification shows how many were restored.
 - **Custom hotkey picker** — change the toggle shortcut to any combination
   (Win/Alt/Ctrl/Shift + any key) via a dedicated picker dialog. At least one
   modifier is required to prevent accidentally globally intercepting a bare
@@ -50,12 +57,24 @@ window manager.
 - **Elevation-aware** — detects when a target window is running as
   Administrator and offers a one-click "Restart as Administrator" so you can
   toggle elevated windows too.
-- **About dialog** — app info, how-it-works summary, data location, and
-  developer credit with a clickable GitHub link.
+- **About dialog** — app info, how-it-works summary, data location, current
+  hotkey, and developer credit with a clickable GitHub link.
 - **Tray-only** — no main window, no taskbar button, no clutter. Just an icon
   in the notification area.
 - **Persistent** — your rules, hotkey setting, and enable/disable state
-  survive restarts.
+  survive restarts. All data files are written atomically (temp + move) so a
+  crash can't corrupt them.
+- **Diagnostic logging** — a rotating log file (`app.log`, 256 KB max with
+  `.bak` backup) captures warnings and errors for troubleshooting. No more
+  silent failures — every catch block logs with context.
+
+## Screenshots
+
+> Screenshots coming soon. The tray menu includes **Quick Exclude** (live
+> window list with checkmarks and process icons), **Always Exclude**
+> (per-process persistent rules), **Restore All**, a **Settings** submenu
+> (hotkey toggle, change hotkey, startup, restart-as-admin), **About**, and
+> **Exit**.
 
 ## Install
 
@@ -88,7 +107,7 @@ dotnet publish -c Release -p:PublishProfile=SingleFile
 ```
 
 Produces a self-contained single-file exe at
-`src\AltTabExcluder\bin\x64\Release\net8.0-windows\publish\win-x64\AltTabExcluder.exe`
+`src\AltTabExcluder\bin\x64\Release\net8.0-windows\win-x64\publish\AltTabExcluder.exe`
 that can be distributed without installing .NET on the target machine.
 
 ## Usage
@@ -107,6 +126,7 @@ that can be distributed without installing .NET on the target machine.
    - Windows with a checkmark are currently hidden.
    - Greyed-out items are natural tool windows (not excluded by
      AltTabExcluder) and can't be toggled.
+   - The submenu stays open after a click so you can toggle multiple windows.
 
 ### Always exclude an app
 
@@ -169,11 +189,11 @@ Win32 P/Invoke bindings, generated from `NativeMethods.txt`.
 ### Auto-apply mechanism
 
 For **Always Exclude** rules, the app installs a `SetWinEventHook` for
-`EVENT_OBJECT_CREATE` (out-of-context, skipping its own process). When a new
-top-level window appears that matches a saved rule, the style is applied
-automatically — no DLL injection, callbacks arrive on the UI thread via the
-message loop. Child windows are filtered out via `GetAncestor(GA_ROOT)` so
-rules are only applied to top-level windows.
+`EVENT_OBJECT_CREATE` and `EVENT_OBJECT_SHOW` (out-of-context, skipping its
+own process). When a new top-level window appears that matches a saved rule,
+the style is applied automatically — no DLL injection, callbacks arrive on
+the UI thread via the message loop. Child windows are filtered out via
+`GetAncestor(GA_ROOT)` so rules are only applied to top-level windows.
 
 At startup, a one-time sweep applies existing rules to windows that were
 already open before AltTabExcluder launched (the WinEvent hook only covers
@@ -185,8 +205,9 @@ windows created after it is installed).
 |------|----------|
 | `%APPDATA%\AltTabExcluder\settings.json` | Hotkey configuration, hotkey enabled state, excluded-by-us HWND tracking |
 | `%APPDATA%\AltTabExcluder\rules.json` | Persistent per-process exclusion rules |
+| `%APPDATA%\AltTabExcluder\app.log` | Rotating log file (256 KB, with `.bak` backup) |
 
-Both files are written atomically (temp file + move) so a crash can't
+All files are written atomically (temp file + move) so a crash can't
 corrupt them, and loaded fault-tolerantly (a corrupt file yields defaults
 rather than crashing the app).
 
@@ -195,7 +216,27 @@ rather than crashing the app).
 - **.NET 8** (`net8.0-windows`, x64)
 - **WinForms** — tray icon, context menus, hotkey picker, about dialog
 - **CsWin32** — source-generated Win32 P/Invoke bindings
-- **No WPF, no third-party dependencies**
+- **xUnit + coverlet** — 102 unit tests with code coverage gates in CI
+- **No WPF, no third-party dependencies** (beyond test tooling)
+
+## Development
+
+```powershell
+dotnet build -c Debug
+dotnet test
+```
+
+The test project (`tests/AltTabExcluder.Tests/`) covers the pure logic
+layers: `WindowManager` style-bit math, `RuleEngine` persistence,
+`AppSettings` formatting and round-trip, `ExclusionTracker`, `AppLogger`,
+and `ProcessRule` record semantics. Win32/UI code is excluded from unit
+tests (requires a live desktop session) but is covered by manual testing.
+
+CI runs on every push/PR via GitHub Actions (`.github/workflows/ci.yml`):
+Debug build, tests with coverage, Release build, and single-file publish.
+Coverage gates enforce &ge;70% on each testable file.
+
+See `AGENTS.md` for the full architecture documentation.
 
 ## Limitations
 

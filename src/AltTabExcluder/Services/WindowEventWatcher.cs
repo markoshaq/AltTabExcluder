@@ -171,7 +171,7 @@ public sealed class WindowEventWatcher : IDisposable
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"WindowEventWatcher apply failed: {ex.Message}");
+            AppLogger.LogWarning(ex, $"WindowEventWatcher apply failed for '{procName}'");
         }
     }
 
@@ -187,8 +187,9 @@ public sealed class WindowEventWatcher : IDisposable
             using var proc = Process.GetProcessById((int)pid);
             return proc.ProcessName;
         }
-        catch
+        catch (Exception ex)
         {
+            AppLogger.LogDebug($"TryGetProcessName failed for HWND {hwnd}: {ex.Message}");
             return null;
         }
     }
@@ -199,7 +200,7 @@ public sealed class WindowEventWatcher : IDisposable
         if (_hook != default)
         {
             try { PInvoke.UnhookWinEvent(_hook); }
-            catch { /* best effort */ }
+            catch (Exception ex) { AppLogger.LogWarning(ex, "UnhookWinEvent failed during dispose"); }
             _hook = default;
         }
         _proc = null;
