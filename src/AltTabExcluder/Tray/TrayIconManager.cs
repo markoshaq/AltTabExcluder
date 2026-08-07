@@ -12,8 +12,8 @@ namespace AltTabExcluder.Tray;
 /// <summary>
 /// Owns the system-tray <see cref="NotifyIcon"/> and its context menu. All user
 /// interaction happens here: Quick Exclude (toggle live windows), Always Exclude
-/// (persist rules per process), hotkey toggle, startup toggle, restart-as-admin,
-/// and exit.
+/// (persist rules per process), Restore All, hotkey toggle, startup toggle,
+/// restart-as-admin, about, and exit.
 /// </summary>
 public sealed class TrayIconManager : IDisposable
 {
@@ -22,8 +22,6 @@ public sealed class TrayIconManager : IDisposable
     private readonly ToolStripMenuItem _quickExcludeItem;
     private readonly ToolStripMenuItem _alwaysExcludeItem;
     private readonly ToolStripMenuItem _startupItem;
-    private readonly ToolStripMenuItem _restartAdminItem;
-    private readonly ToolStripMenuItem _exitItem;
     private readonly RuleEngine _rules;
 
     /// <summary>Flag set when a Quick/Always Exclude item is clicked, so the
@@ -35,9 +33,7 @@ public sealed class TrayIconManager : IDisposable
     /// <summary>Raised when the user toggles the global hotkey on/off via tray.</summary>
     public event EventHandler<bool>? HotkeyToggleRequested;
 
-    /// <summary>Raised when the user wants to change the hotkey. Payload is an
-    /// action that receives the current (modifiers, key) and returns the new
-    /// (modifiers, key) or null if cancelled.</summary>
+    /// <summary>Raised when the user wants to change the hotkey.</summary>
     public event EventHandler? ChangeHotkeyRequested;
 
     /// <summary>Raised when the user toggles "Run at Windows startup".</summary>
@@ -45,6 +41,12 @@ public sealed class TrayIconManager : IDisposable
 
     /// <summary>Raised when the user wants to restart as Administrator.</summary>
     public event EventHandler? RestartRequested;
+
+    /// <summary>Raised when the user wants to open the About dialog.</summary>
+    public event EventHandler? AboutRequested;
+
+    /// <summary>Raised when the user wants to restore all excluded windows.</summary>
+    public event EventHandler? RestoreAllRequested;
 
     public TrayIconManager(RuleEngine rules)
     {
@@ -73,6 +75,14 @@ public sealed class TrayIconManager : IDisposable
         };
         menu.Items.Add(_alwaysExcludeItem);
 
+        // Restore All: un-exclude every window that AltTabExcluder excluded.
+        var restoreAllItem = new ToolStripMenuItem("Restore All")
+        {
+            ToolTipText = "Un-exclude all windows that AltTabExcluder has hidden from Alt+Tab.",
+        };
+        restoreAllItem.Click += (_, _) => RestoreAllRequested?.Invoke(this, EventArgs.Empty);
+        menu.Items.Add(restoreAllItem);
+
         menu.Items.Add(new ToolStripSeparator());
 
         // Hotkey section: enable/disable toggle + change hotkey.
@@ -98,7 +108,7 @@ public sealed class TrayIconManager : IDisposable
 
         menu.Items.Add(new ToolStripSeparator());
 
-        // Phase 4: run at Windows startup (HKCU\...\Run).
+        // Run at Windows startup (HKCU\...\Run).
         var startupItem = new ToolStripMenuItem("Run at Windows startup")
         {
             CheckOnClick = true,
@@ -108,15 +118,20 @@ public sealed class TrayIconManager : IDisposable
         _startupItem = startupItem;
 
         menu.Items.Add(_startupItem);
-        _restartAdminItem = new ToolStripMenuItem("Restart as Administrator");
-        _restartAdminItem.Click += (_, _) => RestartAsAdministrator();
-        menu.Items.Add(_restartAdminItem);
+        var restartAdminItem = new ToolStripMenuItem("Restart as Administrator");
+        restartAdminItem.Click += (_, _) => RestartAsAdministrator();
+        menu.Items.Add(restartAdminItem);
 
         menu.Items.Add(new ToolStripSeparator());
 
-        _exitItem = new ToolStripMenuItem("Exit");
-        _exitItem.Click += (_, _) => ExitRequested?.Invoke(this, EventArgs.Empty);
-        menu.Items.Add(_exitItem);
+        // About: opens the About dialog with app info, how-it-works, and credit.
+        var aboutItem = new ToolStripMenuItem("About...");
+        aboutItem.Click += (_, _) => AboutRequested?.Invoke(this, EventArgs.Empty);
+        menu.Items.Add(aboutItem);
+
+        var exitItem = new ToolStripMenuItem("Exit");
+        exitItem.Click += (_, _) => ExitRequested?.Invoke(this, EventArgs.Empty);
+        menu.Items.Add(exitItem);
 
         _notifyIcon.ContextMenuStrip = menu;
 
@@ -337,6 +352,12 @@ public sealed class TrayIconManager : IDisposable
         }
 
         item.Checked = newState;
+
+        // Refresh Quick Exclude so its checkmarks reflect the windows we just
+        // excluded/un-excluded. Both submenus are populated once on menu open;
+        // without this, Quick Exclude stays stale until the menu is reopened.
+        PopulateQuickExclude();
+
         _excludeClicked = true;
     }
 
@@ -376,8 +397,22 @@ public sealed class TrayIconManager : IDisposable
     /// <summary>Updates the startup menu item's checked state.</summary>
     public void SetStartupChecked(bool enabled) => _startupItem.Checked = enabled;
 
+    /// <summary>Updates the tray icon hover tooltip to show the current hotkey.</summary>
+    public void SetTrayTooltip(string hotkeyLabel)
+        => _notifyIcon.Text = $"AltTabExcluder — {hotkeyLabel}";
+
     private static Icon LoadTrayIcon()
     {
+        try
+        {
+            var asm = System.Reflection.Assembly.GetExecutingAssembly();
+            using var stream = asm.GetManifestResourceStream("AltTabExcluder.assets.app.ico");
+            if (stream is not null)
+                return new Icon(stream);
+        }
+        catch { /* fall through to file-based or default */ }
+
+        // Fallback: load from disk (development / non-embedded scenario).
         string path = Path.Combine(AppContext.BaseDirectory, "assets", "app.ico");
         if (File.Exists(path))
         {

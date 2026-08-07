@@ -19,11 +19,13 @@ public static class WindowEnumerationService
     // Class names we never want to show.
     private static readonly HashSet<string> IgnoredClasses = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Shell_TrayWnd",   // Taskbar
-        "Progman",         // Desktop
-        "WorkerW",         // Desktop wallpaper host
-        "MSCTFIME UI",     // IME
-        "IME",             // IME
+        "Shell_TrayWnd",                     // Taskbar
+        "Progman",                           // Desktop
+        "WorkerW",                           // Desktop wallpaper host
+        "MSCTFIME UI",                       // IME
+        "IME",                               // IME
+        "NotifyIconOverflowWindow",          // Tray overflow flyout (Win10)
+        "TopLevelWindowForOverflowXamlIsland", // Tray overflow flyout (Win11 22H2+)
     };
 
     public static IReadOnlyList<WindowInfo> GetOpenWindows()
@@ -62,7 +64,7 @@ public static class WindowEnumerationService
         if (!PInvoke.IsWindowVisible(hwnd))
             return;
 
-        // Skip the desktop / taskbar / IME helper windows.
+        // Skip shell windows: desktop, taskbar, IME, tray overflow flyout.
         char* cls = stackalloc char[256];
         int clsLen = PInvoke.GetClassName(hwnd, (PWSTR)cls, 256);
         string className = clsLen > 0 ? new string(cls, 0, clsLen) : string.Empty;

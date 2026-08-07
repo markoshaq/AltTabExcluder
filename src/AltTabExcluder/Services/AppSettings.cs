@@ -6,8 +6,9 @@ namespace AltTabExcluder.Services;
 
 /// <summary>
 /// Persisted app settings stored at <c>%APPDATA%\AltTabExcluder\settings.json</c>.
-/// Currently holds the global hotkey configuration; can be extended for future
-/// settings without changing the storage format.
+/// Holds the global hotkey configuration (modifiers, key, enabled state) and the
+/// excluded-by-us HWND tracking set. Can be extended for future settings
+/// without changing the storage format.
 /// </summary>
 public sealed class AppSettings
 {
@@ -29,10 +30,14 @@ public sealed class AppSettings
     /// <summary>Virtual key code (e.g. 0x58 = 'X').</summary>
     public uint HotkeyKey { get; set; } = 0x58;
 
+    /// <summary>Whether the global hotkey was enabled when the app last exited.
+    /// Persisted so the user's enable/disable choice survives restarts.</summary>
+    public bool HotkeyEnabled { get; set; } = true;
+
     /// <summary>HWNDs (as long values) that AltTabExcluder has excluded.
     /// Persisted so Quick Exclude can still identify our exclusions after
     /// restart. Stale entries (closed windows) are harmless.</summary>
-    public System.Collections.Generic.List<long> ExcludedByUs { get; set; } = new();
+    public List<long> ExcludedByUs { get; set; } = new();
 
     /// <summary>Human-readable label for the current hotkey.</summary>
     public string HotkeyLabel => FormatHotkey(HotkeyModifiers, HotkeyKey);
@@ -75,7 +80,7 @@ public sealed class AppSettings
     /// <summary>Formats a modifier+key combo as a human-readable string.</summary>
     public static string FormatHotkey(uint modifiers, uint key)
     {
-        var parts = new System.Collections.Generic.List<string>();
+        var parts = new List<string>();
         if ((modifiers & 0x0008) != 0) parts.Add("Win");
         if ((modifiers & 0x0002) != 0) parts.Add("Ctrl");
         if ((modifiers & 0x0004) != 0) parts.Add("Shift");

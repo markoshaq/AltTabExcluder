@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime.InteropServices;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.UI.WindowsAndMessaging;
@@ -35,14 +34,14 @@ public static class WindowManager
     private static readonly HashSet<IntPtr> ExcludedByUs = new();
 
     /// <summary>Loads persisted excluded-by-us HWNDs into the tracking set.</summary>
-    public static void LoadExcludedByUs(System.Collections.Generic.IEnumerable<long> handles)
+    public static void LoadExcludedByUs(IEnumerable<long> handles)
     {
         foreach (long h in handles)
             ExcludedByUs.Add((IntPtr)h);
     }
 
     /// <summary>Returns the current set of excluded-by-us HWNDs for persistence.</summary>
-    public static System.Collections.Generic.IEnumerable<long> GetExcludedByUsForSave()
+    public static IEnumerable<long> GetExcludedByUsForSave()
         => ExcludedByUs.Select(h => h.ToInt64());
 
     /// <summary>
@@ -118,7 +117,15 @@ public static class WindowManager
 
     private static void SetExtendedStyle(IntPtr hwnd, uint style)
     {
-        // Some window styles only refresh correctly after a frame change broadcast.
+        // Apply the new extended style.
         PInvoke.SetWindowLongPtr((HWND)hwnd, GWL_EXSTYLE, (nint)style);
+
+        // Broadcast a frame change so the shell re-evaluates the window's
+        // taskbar/Alt+Tab presence. Without this, a newly excluded window can
+        // linger on the taskbar until it is hidden/shown.
+        PInvoke.SetWindowPos((HWND)hwnd, default, 0, 0, 0, 0,
+            SET_WINDOW_POS_FLAGS.SWP_NOMOVE | SET_WINDOW_POS_FLAGS.SWP_NOSIZE |
+            SET_WINDOW_POS_FLAGS.SWP_NOZORDER | SET_WINDOW_POS_FLAGS.SWP_NOACTIVATE |
+            SET_WINDOW_POS_FLAGS.SWP_FRAMECHANGED);
     }
 }

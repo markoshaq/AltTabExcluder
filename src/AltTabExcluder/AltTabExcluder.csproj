@@ -22,7 +22,7 @@
     <ApplicationIcon>assets\app.ico</ApplicationIcon>
 
     <!-- PerMonitorV2 DPI awareness (configured via project property, not manifest) -->
-    <ApplicationHighDpiMode>SystemAware</ApplicationHighDpiMode>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
 
     <Version>0.1.0</Version>
     <Company>AltTabExcluder</Company>
@@ -39,9 +39,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="assets\app.ico">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    <EmbeddedResource Include="assets\app.ico" />
   </ItemGroup>
 
 </Project>

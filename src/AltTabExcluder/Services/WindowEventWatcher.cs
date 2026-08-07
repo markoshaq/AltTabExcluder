@@ -14,7 +14,7 @@ namespace AltTabExcluder.Services;
 /// <para>
 /// <b>Threading:</b> the hook is installed with <c>WINEVENT_OUTOFCONTEXT</c> and
 /// <c>WINEVENT_SKIPOWNPROCESS</c>, so callbacks arrive on the installing thread
-/// via its message loop (the WPF UI thread). No DLL injection occurs. Events
+/// via its message loop (the WinForms UI thread). No DLL injection occurs. Events
 /// can be slightly delayed and may fire for non-window objects, so each callback
 /// is validated (<c>IsWindow</c>, <c>IsWindowVisible</c>, has a title, is
 /// top-level) before a rule is applied.
@@ -33,6 +33,13 @@ public sealed class WindowEventWatcher : IDisposable
     private const uint WINEVENT_SKIPOWNPROCESS = 0x0002;
     private const int OBJID_WINDOW = 0x00000000;
     private const int CHILDID_SELF = 0;
+    private const uint GA_ROOT = 2; // GetAncestor flags: retrieve the root window
+
+    // GetAncestor is not in CsWin32's metadata set, so we declare it as a raw
+    // P/Invoke (like NativeElevationInterop / HotkeyPickerDialog do for their
+    // non-CsWin32 APIs).
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern IntPtr GetAncestor(IntPtr hwnd, uint gaFlags);
 
     private readonly RuleEngine _rules;
     private HWINEVENTHOOK _hook;
@@ -65,6 +72,13 @@ public sealed class WindowEventWatcher : IDisposable
         if (idObject != OBJID_WINDOW || idChild != CHILDID_SELF)
             return;
         if (hwnd == default)
+            return;
+
+        // EVENT_OBJECT_CREATE fires for child windows too; only apply rules to
+        // top-level windows (GetAncestor(GA_ROOT) == self). Applying
+        // WS_EX_TOOLWINDOW to child windows is wasteful and can have unintended
+        // visual effects on the target app.
+        if (GetAncestor((IntPtr)hwnd, GA_ROOT) != (IntPtr)hwnd)
             return;
 
         TryApply(hwnd, immediate: true);

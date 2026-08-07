@@ -13,21 +13,35 @@ hotkey.
 
 Implemented and feature-complete for the tray-only design:
 
-- Core window-style toggle (`WS_EX_TOOLWINDOW` / `WS_EX_APPWINDOW`).
-- Tray context menu with Quick Exclude (live per-window toggles) and Always
-  Exclude (persistent per-process rules).
-- Configurable global hotkey (default `Win+Alt+X`) with a hotkey-picker dialog.
+- Core window-style toggle (`WS_EX_TOOLWINDOW` / `WS_EX_APPWINDOW`) with
+  `SWP_FRAMECHANGED` broadcast so the shell re-evaluates taskbar/Alt+Tab
+  presence immediately.
+- Tray context menu with Quick Exclude (live per-window toggles), Always
+  Exclude (persistent per-process rules), and Restore All (un-exclude every
+  window AltTabExcluder hid at once). Toggling an Always Exclude rule
+  refreshes the Quick Exclude submenu in place so checkmarks stay in sync.
+- Configurable global hotkey (default `Win+Alt+X`) with a hotkey-picker dialog
+  that requires at least one modifier (rejects bare keys that would globally
+  intercept that key in every app). The enabled/disabled state is persisted
+  across restarts. The tray icon tooltip shows the current hotkey on hover.
 - Per-process rule persistence (`rules.json`) with auto-apply to newly created
-  windows via `SetWinEventHook`.
+  top-level windows via `SetWinEventHook` (child windows are filtered out via
+  `GetAncestor(GA_ROOT)`), plus a one-time sweep of already-open windows at
+  startup so rules take effect immediately on launch.
+- Single-instance enforcement via a named `Mutex` — a second launch exits
+  silently instead of creating a duplicate tray icon.
 - Run-at-Windows-startup toggle (HKCU `\Run`).
 - Elevation detection with "Restart as Administrator" fallback.
-- Settings persistence (`settings.json`) for hotkey config and the
-  excluded-by-us HWND tracking set.
+- About dialog with app info, how-it-works, data location, current hotkey,
+  and developer credit (clickable GitHub link).
+- Settings persistence (`settings.json`) for hotkey config, hotkey enabled
+  state, and the excluded-by-us HWND tracking set.
 
-The project has **not yet been compiled** — the dev machine it was scaffolded
-on has no .NET SDK installed (only the 8.0.14 / 9.0.10 runtimes). The first
-build on a machine with the .NET 8 SDK will validate the CsWin32-generated
-signatures listed below.
+The project **builds cleanly** with the .NET 8 SDK (verified on SDK
+8.0.423): `dotnet build -c Debug` completes with 0 warnings and 0 errors.
+All CsWin32-generated signatures listed below matched the consuming code
+as-written — no source changes were needed on first build (see "Verified on
+first build" below).
 
 ## Build & run
 
@@ -43,19 +57,44 @@ Target framework is `net8.0-windows`, x64 only (so it can interact with
 64-bit target processes). **WinForms only** (`UseWindowsForms=true`) — WPF is
 not enabled. WinForms provides the `NotifyIcon` tray control, the context
 menu, and the hotkey-picker dialog. `AllowUnsafeBlocks` is enabled for
-CsWin32 pointer parameters. DPI awareness is `SystemAware` (set via the
-`ApplicationHighDpiMode` project property, not the manifest).
+CsWin32 pointer parameters. DPI awareness is `PerMonitorV2` (set via the
+`ApplicationHighDpiMode` project property, not the manifest). The app icon
+(`assets/app.ico`) is embedded as a resource (`EmbeddedResource` in the
+`.csproj`) so it is available at runtime in all scenarios including
+single-file publish.
+
+### Single-file publish
+
+A publish profile is provided for self-contained single-file distribution:
+
+```powershell
+dotnet publish -c Release -p:PublishProfile=SingleFile
+```
+
+Produces a single `AltTabExcluder.exe` (~68 MB) at
+`bin\x64\Release\net8.0-windows\win-x64\publish\` that includes the .NET
+runtime — no .NET installation required on the target machine. The profile
+is at `Properties/PublishProfiles/SingleFile.pubxml`.
 
 ## Architecture
 
 ### Entry point
 
-- `Program.cs` — WinForms entry point. `ApplicationConfiguration.Initialize()`
-  + `Application.Run()` keeps the process alive with only the tray icon
+- `Program.cs` — WinForms entry point. Acquires a named `Mutex`
+  (`Global\AltTabExcluder_SingleInstance`) and exits immediately if another
+  instance is already running. `ApplicationConfiguration.Initialize()` +
+  `Application.Run()` keeps the process alive with only the tray icon
   present. `Program` is a static coordinator that owns and wires up all
   services (`_tray`, `_hotkey`, `_rules`, `_watcher`, `_settings`) and handles
-  their events. `ShutdownApp()` disposes services in order and calls
-  `Application.Exit()`.
+  their events (hotkey toggle/change, startup toggle, restore-all, about,
+  restart-as-admin, exit). The hotkey's enabled/disabled state is respected
+  from persisted settings on startup. After installing the
+  `WindowEventWatcher`, it calls `ApplyRulesToOpenWindows()` to sweep
+  already-open windows against existing rules (the hook only covers windows
+  created after launch). `ShutdownApp()` disposes services in order and
+  calls `Application.Exit()`.
+  The `finally` block in `Main` releases and disposes the single-instance
+  `Mutex`.
 
 ### Core logic
 
@@ -65,13 +104,16 @@ CsWin32 pointer parameters. DPI awareness is `SystemAware` (set via the
   (`ExcludedByUs`) tracking which HWNDs were excluded by AltTabExcluder
   (vs. windows that naturally carry `WS_EX_TOOLWINDOW`). This set is
   persisted via `AppSettings` so Quick Exclude can identify our exclusions
-  after restart.
+  after restart. `SetExtendedStyle` follows `SetWindowLongPtr` with a
+  `SetWindowPos(SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+  SWP_NOACTIVATE)` call so the shell immediately re-evaluates the window's
+  taskbar/Alt+Tab presence.
 
 ### Services (`Services/`)
 
 - `WindowEnumerationService.cs` — `EnumWindows`-based snapshot of open
   visible top-level windows, enriched with process name + icon. Filters out
-  the desktop, taskbar, IME, and the app's own windows.
+  the desktop, taskbar, IME, tray overflow flyout, and the app's own windows.
 - `WindowInfo.cs` — immutable record describing one enumerated window
   (HWND, PID, process name, title, icon, exclusion state).
 - `HotkeyManager.cs` — registers a configurable global hotkey (default
@@ -86,13 +128,16 @@ CsWin32 pointer parameters. DPI awareness is `SystemAware` (set via the
   (`ProcessName`, `Exclude`, `CreatedAt`).
 - `WindowEventWatcher.cs` — `SetWinEventHook(EVENT_OBJECT_CREATE)` with
   `WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS`; auto-applies matching
-  rules to newly created windows. Uses a one-shot `WinForms.Timer` to
-  re-check windows that aren't yet visible/titled when the event fires.
+  rules to newly created **top-level** windows (child windows are filtered
+  out via a raw `GetAncestor(GA_ROOT)` P/Invoke, since CsWin32 has no
+  metadata for `GetAncestor`). Uses a one-shot `WinForms.Timer` to re-check
+  windows that aren't yet visible/titled when the event fires.
   Implements `IDisposable`.
 - `AppSettings.cs` — persists to `%APPDATA%\AltTabExcluder\settings.json`.
-  Holds the hotkey configuration (modifiers + key code) and the
-  `ExcludedByUs` HWND list. Provides `FormatHotkey` for human-readable
-  labels. Atomic write, fault-tolerant load.
+  Holds the hotkey configuration (modifiers + key code), the hotkey
+  enabled/disabled state, and the `ExcludedByUs` HWND list. Provides
+  `FormatHotkey` for human-readable labels. Atomic write, fault-tolerant
+  load.
 - `StartupManager.cs` — `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
   toggle for "Run at Windows startup" (per-user, no admin needed).
 - `ElevationDetector.cs` — token-based elevation check for the current and
@@ -108,11 +153,13 @@ CsWin32 pointer parameters. DPI awareness is `SystemAware` (set via the
 - `TrayIconManager.cs` — owns the `NotifyIcon` and its context menu. Menu
   items: **Quick Exclude** (submenu of all open windows with live toggle
   checkmarks), **Always Exclude** (submenu of running processes + saved
-  rules, with persistent per-process toggle), **Hotkey** (enable/disable
-  toggle), **Change Hotkey...** (opens `HotkeyPickerDialog`), **Run at
-  Windows startup** (checkbox), **Restart as Administrator**, **Exit**.
-  Submenus are repopulated on every open so lists stay current. Excludes
-  submenus stay open after a click so the user can toggle multiple items.
+  rules, with persistent per-process toggle), **Restore All** (un-exclude
+  every window AltTabExcluder hid), **Hotkey** (enable/disable toggle),
+  **Change Hotkey...** (opens `HotkeyPickerDialog`), **Run at Windows
+  startup** (checkbox), **Restart as Administrator**, **About...** (opens
+  `AboutDialog`), **Exit**. Submenus are repopulated on every open so lists
+  stay current. Excludes submenus stay open after a click so the user can
+  toggle multiple items. The tray icon tooltip shows the current hotkey.
   Implements `IDisposable`.
 
 ### UI (`UI/`)
@@ -120,8 +167,14 @@ CsWin32 pointer parameters. DPI awareness is `SystemAware` (set via the
 - `HotkeyPickerDialog.cs` — WinForms `Form` that captures a keyboard
   shortcut from the user. Uses a low-level `WH_KEYBOARD_LL` hook (raw
   `DllImport`, not CsWin32) to reliably capture Win-key combinations, which
-  Windows intercepts before regular key processing. Returns modifier flags
-  + virtual key code.
+  Windows intercepts before regular key processing. Requires at least one
+  modifier (Ctrl/Alt/Shift/Win) — a bare key would globally intercept that
+  key in every app, so the OK button is rejected with an inline prompt until
+  a modifier is held. Returns modifier flags + virtual key code.
+- `AboutDialog.cs` — small modal `Form` showing app name, version (read from
+  the assembly), one-line description, how-it-works summary, current hotkey,
+  data location (`%APPDATA%\AltTabExcluder\`), and developer credit with a
+  clickable GitHub `LinkLabel`.
 
 ## Win32 interop (CsWin32)
 
@@ -134,6 +187,8 @@ uses the generated `HWND` / `LPARAM` / `PWSTR` / `HWINEVENTHOOK` types.
 - `GetForegroundWindow` — `Program.cs` (hotkey handler).
 - `GetWindowLongPtr` / `SetWindowLongPtr` — `WindowManager.cs` (style
   read/write; `nint`-based, pointer-sized).
+- `SetWindowPos` — `WindowManager.cs` (frame-change broadcast after a style
+  change; flags passed as `SET_WINDOW_POS_FLAGS`).
 - `IsWindow` — `WindowManager.cs`, `WindowEventWatcher.cs`.
 - `IsWindowVisible` — `WindowEnumerationService.cs`, `WindowEventWatcher.cs`.
 - `RegisterHotKey` / `UnregisterHotKey` — `HotkeyManager.cs`.
@@ -154,12 +209,15 @@ uses the generated `HWND` / `LPARAM` / `PWSTR` / `HWINEVENTHOOK` types.
 - `SetWindowsHookEx` / `UnhookWindowsHookEx` / `CallNextHookEx` /
   `GetModuleHandle` — `HotkeyPickerDialog.cs` (raw P/Invoke for the
   `WH_KEYBOARD_LL` low-level keyboard hook).
+- `GetAncestor` — `WindowEventWatcher.cs` (raw P/Invoke; CsWin32 has no
+  metadata for this API). Used to filter out child windows so rules are only
+  applied to top-level windows.
 
-### Unused entries in `NativeMethods.txt`
+### Removed `NativeMethods.txt` entries
 
-The following are listed in `NativeMethods.txt` but not referenced by any
-current code. They are leftovers from removed/never-built features and can
-be deleted to reduce generated code:
+The following were previously listed in `NativeMethods.txt` but have been
+removed — they were leftovers from removed/never-built features and the raw
+P/Invoke paths above supersede the CsWin32 versions:
 
 - `GetSystemMenu`, `AppendMenu`, `CheckMenuItem` — were for a system-menu
   injection feature that is not implemented.
@@ -171,7 +229,13 @@ be deleted to reduce generated code:
 - `OpenProcess`, `OpenProcessToken`, `GetTokenInformation`, `CloseHandle` —
   CsWin32 versions unused; `NativeElevationInterop` uses raw P/Invoke.
 
-### Assumptions to verify on first build
+### Verified on first build
+
+The first successful build (SDK 8.0.423, 0 warnings / 0 errors) confirmed
+that all of the following CsWin32 signature assumptions held as-written — no
+source changes were required. Kept as a reference for future CsWin32 version
+bumps; if a binding breaks after upgrading `Microsoft.Windows.CsWin32`, the
+fix is local to the file that uses the API.
 
 1. `GetWindowLongPtr` / `SetWindowLongPtr` are pointer-sized and written to
    use `nint`, which is assignment-compatible whether CsWin32 emits `nint`
@@ -191,8 +255,9 @@ be deleted to reduce generated code:
    needs no DLL).
 6. `RegisterHotKey`'s modifiers param is `HOT_KEY_MODIFIERS`; the code casts
    `(HOT_KEY_MODIFIERS)(Modifiers | MOD_NOREPEAT)`.
-
-If any of these differ, the fix is local to the file that uses the API.
+7. `SetWindowPos`'s flags param is `SET_WINDOW_POS_FLAGS`; the code ORs the
+   `SWP_*` enum members. `default` is used for the `hWndInsertAfter`
+   (`HWND`) argument since `SWP_NOZORDER` makes it irrelevant.
 
 ## Rule persistence & auto-apply
 
@@ -211,10 +276,24 @@ default — so every persisted rule has `Exclude=true`.
 `WindowEventWatcher` installs a `SetWinEventHook(EVENT_OBJECT_CREATE)` hook
 with `WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS`. Callbacks arrive on
 the WinForms UI thread via the message loop — no DLL injection. Each event
-is validated (`IsWindow` + `IsWindowVisible` + has a process name) before a
-rule is applied. Because a brand-new window may not yet be visible or titled
-when `EVENT_OBJECT_CREATE` fires, the watcher re-checks once after a short
-delay (300 ms one-shot `WinForms.Timer`) if the immediate check fails.
+is validated: `idObject`/`idChild` must be the window itself (not a
+sub-object), `GetAncestor(GA_ROOT)` must equal the HWND (filters out child
+windows), `IsWindow` + `IsWindowVisible` must hold, and a process name must
+be resolvable — before a rule is applied. Because a brand-new window may not
+yet be visible or titled when `EVENT_OBJECT_CREATE` fires, the watcher
+re-checks once after a short delay (300 ms one-shot `WinForms.Timer`) if the
+immediate check fails.
+
+### Startup sweep of existing windows
+
+Because the WinEvent hook only covers windows created *after* it is
+installed, `Program.ApplyRulesToOpenWindows()` runs once at startup
+(immediately after `_watcher.Install()`) to apply existing rules to
+windows that are already open. It enumerates via
+`WindowEnumerationService.GetOpenWindows()` and calls
+`_rules.ApplyTo(hwnd, processName)` for each. This closes the gap where an
+"Always Exclude Chrome" rule would otherwise not affect Chrome windows
+that were open before AltTabExcluder launched.
 
 ### Tray menu integration
 
@@ -227,7 +306,13 @@ delay (300 ms one-shot `WinForms.Timer`) if the immediate check fails.
   a checkmark reflecting whether a persistent rule exists. Also lists saved
   rules for processes that aren't currently running, under a separator.
   Clicking toggles the rule and applies it to all currently open windows of
-  that process.
+  that process, then refreshes the Quick Exclude submenu in place so its
+  checkmarks stay in sync with the just-applied style changes (both submenus
+  are otherwise populated only once when the main menu opens).
+- **Restore All** — un-excludes every window in the `ExcludedByUs` tracking
+  set at once (calls `WindowManager.SetExcluded(hwnd, false)` for each,
+  after pruning stale handles). Natural tool windows (not excluded by us)
+  are left untouched. Shows a balloon notification with the count restored.
 
 ### Run at Windows startup
 

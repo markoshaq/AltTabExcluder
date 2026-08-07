@@ -63,7 +63,9 @@ public sealed class HotkeyPickerDialog : Form
             Text = "OK",
             Left = 160, Top = 100,
             Width = 80,
-            DialogResult = DialogResult.OK,
+            // DialogResult is set conditionally in the click handler — a bare
+            // key with no modifier would globally intercept that key in every
+            // app, so we reject it here rather than letting the dialog close.
         };
 
         _cancelButton = new Button
@@ -74,7 +76,18 @@ public sealed class HotkeyPickerDialog : Form
             DialogResult = DialogResult.Cancel,
         };
 
-        _okButton.Click += (_, _) => { HasValidCombo = Key != 0; };
+        _okButton.Click += (_, _) =>
+        {
+            if (Key != 0 && Modifiers != 0)
+            {
+                HasValidCombo = true;
+                DialogResult = DialogResult.OK;
+            }
+            else
+            {
+                _label.Text = "Press a key with at least one modifier (Ctrl/Alt/Shift/Win):";
+            }
+        };
 
         Controls.AddRange(new Control[] { _label, _inputBox, _okButton, _cancelButton });
         AcceptButton = _okButton;

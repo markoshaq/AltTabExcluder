@@ -28,32 +28,48 @@ window manager.
 ## Features
 
 - **Hotkey toggle** — press `Win+Alt+X` (customizable) to instantly hide or
-  restore the focused window from Alt+Tab.
+  restore the focused window from Alt+Tab. The hotkey's enabled/disabled
+  state persists across restarts, and the tray icon tooltip shows the
+  current hotkey on hover.
 - **Quick Exclude** — browse all open windows from the tray menu and toggle
   each one with a click. Checkmarks show current state.
 - **Always Exclude** — save a per-process rule so every future window from
   that app is auto-excluded the moment it opens. No need to re-toggle each
   time you launch the app.
+- **Restore All** — un-exclude every window AltTabExcluder has hidden, in one
+  click. Useful when you've excluded a bunch of windows and want to reset
+  quickly.
 - **Custom hotkey picker** — change the toggle shortcut to any combination
-  (Win/Alt/Ctrl/Shift + any key) via a dedicated picker dialog.
+  (Win/Alt/Ctrl/Shift + any key) via a dedicated picker dialog. At least one
+  modifier is required to prevent accidentally globally intercepting a bare
+  key.
+- **Single-instance** — a second launch exits silently instead of creating a
+  duplicate tray icon or failing to register the hotkey.
 - **Run at startup** — optional, per-user, no admin privileges required.
 - **Elevation-aware** — detects when a target window is running as
   Administrator and offers a one-click "Restart as Administrator" so you can
   toggle elevated windows too.
+- **About dialog** — app info, how-it-works summary, data location, and
+  developer credit with a clickable GitHub link.
 - **Tray-only** — no main window, no taskbar button, no clutter. Just an icon
   in the notification area.
-- **Persistent** — your rules and hotkey setting survive restarts.
+- **Persistent** — your rules, hotkey setting, and enable/disable state
+  survive restarts.
 
 ## Install
 
-> Pre-built binaries are not yet published. For now, [build from source](#build-from-source).
+### Pre-built binary
+
+Download the latest release from the [Releases](https://github.com/markoshaq/AltTabExcluder/releases)
+page — a single self-contained `AltTabExcluder.exe` that requires no .NET
+runtime installation. Just run it.
 
 ### Build from source
 
 Requires the **.NET 8 SDK** and Windows 10/11 (x64).
 
 ```powershell
-git clone <repo-url>
+git clone https://github.com/markoshaq/AltTabExcluder.git
 cd AltTabExcluder
 dotnet build -c Release
 ```
@@ -63,6 +79,16 @@ The executable will be at
 
 Run it directly, or use the tray menu's **Run at Windows startup** option to
 have it launch automatically on sign-in.
+
+### Publish a single-file executable
+
+```powershell
+dotnet publish -c Release -p:PublishProfile=SingleFile
+```
+
+Produces a self-contained single-file exe at
+`src\AltTabExcluder\bin\x64\Release\net8.0-windows\publish\win-x64\AltTabExcluder.exe`
+that can be distributed without installing .NET on the target machine.
 
 ## Usage
 
@@ -91,12 +117,27 @@ have it launch automatically on sign-in.
 4. Saved rules for apps that aren't currently running appear under a
    separator at the bottom — you can remove them there.
 
+### Restore all excluded windows
+
+1. Right-click the tray icon.
+2. Click **Restore All**.
+3. Every window that AltTabExcluder has hidden is restored to Alt+Tab at
+   once. A notification shows how many windows were restored.
+
 ### Change the hotkey
 
 1. Right-click the tray icon &rarr; **Change Hotkey...**
-2. Press your desired key combination in the dialog.
+2. Press your desired key combination in the dialog. At least one modifier
+   (Ctrl/Alt/Shift/Win) is required.
 3. Click **OK**. If the combination is already in use by another app,
    you'll get a warning and the old hotkey is restored.
+
+### Enable or disable the hotkey
+
+1. Right-click the tray icon.
+2. Click the **Hotkey** item to toggle it on or off.
+3. The state is saved — if you disable the hotkey, it stays disabled on the
+   next launch.
 
 ### Toggle elevated windows
 
@@ -118,7 +159,9 @@ AltTabExcluder toggles two Win32 extended window styles on target windows:
 To **exclude** a window: set `WS_EX_TOOLWINDOW`, clear `WS_EX_APPWINDOW`.
 To **restore** it: clear `WS_EX_TOOLWINDOW`, set `WS_EX_APPWINDOW`.
 
-These style changes take effect immediately for the shell's task switcher.
+After a style change, a `SetWindowPos(SWP_FRAMECHANGED)` call forces the
+shell to re-evaluate the window's taskbar/Alt+Tab presence immediately.
+
 The app uses [CsWin32](https://github.com/microsoft/CsWin32) for type-safe
 Win32 P/Invoke bindings, generated from `NativeMethods.txt`.
 
@@ -128,13 +171,18 @@ For **Always Exclude** rules, the app installs a `SetWinEventHook` for
 `EVENT_OBJECT_CREATE` (out-of-context, skipping its own process). When a new
 top-level window appears that matches a saved rule, the style is applied
 automatically — no DLL injection, callbacks arrive on the UI thread via the
-message loop.
+message loop. Child windows are filtered out via `GetAncestor(GA_ROOT)` so
+rules are only applied to top-level windows.
+
+At startup, a one-time sweep applies existing rules to windows that were
+already open before AltTabExcluder launched (the WinEvent hook only covers
+windows created after it is installed).
 
 ### Storage
 
 | File | Contents |
 |------|----------|
-| `%APPDATA%\AltTabExcluder\settings.json` | Hotkey configuration, excluded-by-us HWND tracking |
+| `%APPDATA%\AltTabExcluder\settings.json` | Hotkey configuration, hotkey enabled state, excluded-by-us HWND tracking |
 | `%APPDATA%\AltTabExcluder\rules.json` | Persistent per-process exclusion rules |
 
 Both files are written atomically (temp file + move) so a crash can't
@@ -144,7 +192,7 @@ rather than crashing the app).
 ## Tech Stack
 
 - **.NET 8** (`net8.0-windows`, x64)
-- **WinForms** — tray icon, context menus, hotkey picker dialog
+- **WinForms** — tray icon, context menus, hotkey picker, about dialog
 - **CsWin32** — source-generated Win32 P/Invoke bindings
 - **No WPF, no third-party dependencies**
 
@@ -153,10 +201,12 @@ rather than crashing the app).
 - **Elevated windows** require AltTabExcluder to also run elevated (UIPI).
   The app detects this and offers a restart-as-admin action.
 - **Child windows** are not listed in Quick Exclude — only top-level
-  windows with a title.
+  windows with a title. The auto-apply watcher also filters out child
+  windows via `GetAncestor(GA_ROOT)`.
 - **HWND recycling**: the excluded-by-us tracking set persists HWND values,
-  which the OS can recycle after a window closes. This is a known
-  limitation; the per-process rule system is the more robust mechanism.
+  which the OS can recycle after a window closes. Stale entries are pruned
+  when the tray menu opens; the per-process rule system is the more robust
+  mechanism for persistent exclusion.
 
 ## License
 

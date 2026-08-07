@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Threading;
 using System.Windows.Forms;
 using AltTabExcluder.Services;
 using AltTabExcluder.Tray;
@@ -16,47 +17,103 @@ namespace AltTabExcluder;
 /// </summary>
 internal static class Program
 {
+    private const string SingleInstanceMutexName = @"Global\AltTabExcluder_SingleInstance";
+
     private static TrayIconManager? _tray;
     private static HotkeyManager? _hotkey;
     private static RuleEngine? _rules;
     private static WindowEventWatcher? _watcher;
     private static AppSettings? _settings;
 
+    // Held for the lifetime of the process to prevent a second instance from
+    // starting (would otherwise create a duplicate tray icon and fail to
+    // register the global hotkey).
+    private static Mutex? _singleInstanceMutex;
+
     [STAThread]
     private static void Main()
     {
-        ApplicationConfiguration.Initialize();
+        // Ensure only one instance is running — this is a tray-only app, so a
+        // second instance would just produce a duplicate icon and a hotkey
+        // registration failure. Using a named Mutex (not a Process lookup) is
+        // race-free and works across sessions.
+        _singleInstanceMutex = new Mutex(initiallyOwned: true, name: SingleInstanceMutexName, out bool createdNew);
+        if (!createdNew)
+            return;
 
-        // Load persisted settings (hotkey config, excluded-by-us set) and rules.
-        _settings = AppSettings.Load();
-        WindowManager.LoadExcludedByUs(_settings.ExcludedByUs);
-        _rules = new RuleEngine();
+        try
+        {
+            ApplicationConfiguration.Initialize();
 
-        _tray = new TrayIconManager(_rules);
-        _tray.HotkeyToggleRequested += (_, enabled) => OnHotkeyToggleRequested(enabled);
-        _tray.ChangeHotkeyRequested += (_, _) => OnChangeHotkeyRequested();
-        _tray.StartupToggleRequested += (_, enabled) => OnStartupToggleRequested(enabled);
-        _tray.RestartRequested += (_, _) => ShutdownApp();
-        _tray.ExitRequested += (_, _) => ShutdownApp();
-        _tray.SetStartupChecked(StartupManager.IsEnabled);
-        _tray.SetHotkeyLabel(_settings.HotkeyLabel);
+            // Load persisted settings (hotkey config, excluded-by-us set) and rules.
+            _settings = AppSettings.Load();
+            WindowManager.LoadExcludedByUs(_settings.ExcludedByUs);
+            _rules = new RuleEngine();
 
-        // Global hotkey: configurable, defaults to Win+Alt+X.
-        _hotkey = new HotkeyManager();
-        _hotkey.SetHotkey(_settings.HotkeyModifiers, _settings.HotkeyKey);
-        _hotkey.HotkeyPressed += (_, _) => OnHotkeyPressed();
-        if (_hotkey.Register())
-            _tray.SetHotkeyChecked(true);
-        else
-            _tray.ShowNotification("AltTabExcluder",
-                $"Could not register {_settings.HotkeyLabel} — another app may own it. You can still use Quick Exclude.",
-                Forms.ToolTipIcon.Warning);
+            _tray = new TrayIconManager(_rules);
+            _tray.HotkeyToggleRequested += (_, enabled) => OnHotkeyToggleRequested(enabled);
+            _tray.ChangeHotkeyRequested += (_, _) => OnChangeHotkeyRequested();
+            _tray.StartupToggleRequested += (_, enabled) => OnStartupToggleRequested(enabled);
+            _tray.RestartRequested += (_, _) => ShutdownApp();
+            _tray.ExitRequested += (_, _) => ShutdownApp();
+            _tray.AboutRequested += (_, _) => OnAboutRequested();
+            _tray.RestoreAllRequested += (_, _) => OnRestoreAllRequested();
+            _tray.SetStartupChecked(StartupManager.IsEnabled);
+            _tray.SetHotkeyLabel(_settings.HotkeyLabel);
+            _tray.SetTrayTooltip(_settings.HotkeyLabel);
 
-        // Auto-apply rules to newly created windows.
-        _watcher = new WindowEventWatcher(_rules);
-        _watcher.Install();
+            // Global hotkey: configurable, defaults to Win+Alt+X.
+            // Respects the persisted enabled/disabled state so the user's
+            // choice survives restarts.
+            _hotkey = new HotkeyManager();
+            _hotkey.SetHotkey(_settings.HotkeyModifiers, _settings.HotkeyKey);
+            _hotkey.HotkeyPressed += (_, _) => OnHotkeyPressed();
+            if (_settings.HotkeyEnabled && _hotkey.Register())
+                _tray.SetHotkeyChecked(true);
+            else if (_settings.HotkeyEnabled)
+                _tray.ShowNotification("AltTabExcluder",
+                    $"Could not register {_settings.HotkeyLabel} — another app may own it. You can still use Quick Exclude.",
+                    Forms.ToolTipIcon.Warning);
 
-        Application.Run();
+            // Auto-apply rules to newly created windows.
+            _watcher = new WindowEventWatcher(_rules);
+            _watcher.Install();
+
+            // Apply existing rules to windows that are already open at startup —
+            // the WinEvent hook only covers windows created after this point.
+            ApplyRulesToOpenWindows();
+
+            Application.Run();
+        }
+        finally
+        {
+            // Release the single-instance mutex so a future launch can start.
+            if (_singleInstanceMutex is not null)
+            {
+                try { _singleInstanceMutex.ReleaseMutex(); }
+                catch (ApplicationException) { /* not owned — ignore */ }
+                _singleInstanceMutex.Dispose();
+                _singleInstanceMutex = null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Sweeps currently open windows and applies any matching persistent rules.
+    /// Called once at startup to cover windows that existed before the
+    /// <see cref="WindowEventWatcher"/> hook was installed.
+    /// </summary>
+    private static void ApplyRulesToOpenWindows()
+    {
+        if (_rules is null) return;
+        foreach (var w in WindowEnumerationService.GetOpenWindows())
+        {
+            try { _rules.ApplyTo(w.Hwnd, w.ProcessName); }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Startup rule apply failed for {w.ProcessName}: {ex.Message}");
+            }
+        }
     }
 
     /// <summary>Handles the global hotkey: toggle the focused window.</summary>
@@ -98,11 +155,18 @@ internal static class Program
                 _tray?.ShowNotification("AltTabExcluder",
                     $"Could not register {_settings.HotkeyLabel} — it may be in use by another app.",
                     Forms.ToolTipIcon.Warning);
+            else
+            {
+                _settings.HotkeyEnabled = true;
+                _settings.Save();
+            }
         }
         else
         {
             _hotkey.Unregister();
             _tray?.SetHotkeyChecked(false);
+            _settings.HotkeyEnabled = false;
+            _settings.Save();
         }
     }
 
@@ -134,13 +198,47 @@ internal static class Program
         // Persist the new hotkey.
         _settings.HotkeyModifiers = dialog.Modifiers | 0x4000; // add NoRepeat
         _settings.HotkeyKey = dialog.Key;
+        _settings.HotkeyEnabled = true;
         _settings.Save();
 
         string label = _settings.HotkeyLabel;
         _tray?.SetHotkeyLabel(label);
+        _tray?.SetTrayTooltip(label);
         _tray?.SetHotkeyChecked(true);
         _tray?.ShowNotification("AltTabExcluder",
             $"Hotkey changed to {label}.",
+            Forms.ToolTipIcon.Info);
+    }
+
+    private static void OnAboutRequested()
+    {
+        if (_settings is null) return;
+        using var dialog = new AboutDialog(_settings.HotkeyLabel);
+        dialog.ShowDialog();
+    }
+
+    private static void OnRestoreAllRequested()
+    {
+        // Un-exclude every window that AltTabExcluder excluded. Natural tool
+        // windows (not excluded by us) are left untouched.
+        WindowManager.PruneStaleHandles();
+        var handles = WindowManager.GetExcludedByUsForSave().Select(h => (IntPtr)h).ToList();
+        int count = 0;
+        foreach (var hwnd in handles)
+        {
+            try
+            {
+                WindowManager.SetExcluded(hwnd, false);
+                count++;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"RestoreAll failed for {hwnd}: {ex.Message}");
+            }
+        }
+
+        _tray?.ShowNotification("AltTabExcluder",
+            count > 0 ? $"Restored {count} window(s) to Alt+Tab." : "No windows to restore.",
             Forms.ToolTipIcon.Info);
     }
 

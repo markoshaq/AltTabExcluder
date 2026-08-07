@@ -75,13 +75,6 @@ public sealed class HotkeyManager : IDisposable
         _registered = false;
     }
 
-    /// <summary>Unregisters and re-registers with the current Modifiers/Key.</summary>
-    public bool Reregister()
-    {
-        Unregister();
-        return Register();
-    }
-
     public void Dispose()
     {
         if (_disposed) return;
