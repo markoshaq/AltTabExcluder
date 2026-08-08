@@ -1,11 +1,15 @@
-# AltTabExcluder
+# Architecture
 
-Lightweight Windows system-tray utility (.NET 8, WinForms) that excludes
-specific running windows from the Alt+Tab switcher by toggling the Win32
-`WS_EX_TOOLWINDOW` / `WS_EX_APPWINDOW` extended styles on target window
-handles. The app is **tray-only**: no main window, no dashboard. All user
-interaction happens through the tray context menu and a configurable global
-hotkey.
+AltTabExcluder is a lightweight Windows system-tray utility (.NET 8, WinForms)
+that excludes specific running windows from the Alt+Tab switcher by toggling
+the Win32 `WS_EX_TOOLWINDOW` / `WS_EX_APPWINDOW` extended styles on target
+window handles. The app is **tray-only**: no main window, no dashboard. All
+user interaction happens through the tray context menu and a configurable
+global hotkey.
+
+> If you're an AI agent working in this repo, the canonical machine-facing
+> reference is [`AGENTS.md`](../AGENTS.md). This document is the human-facing
+> equivalent.
 
 ## Build & run
 
@@ -38,29 +42,40 @@ reflection; the SDK blocks it with `NETSDK1175`).
 ### CI
 
 GitHub Actions workflow at `.github/workflows/ci.yml` runs on every push/PR
-to `main` (and on `v*` tags): runs a `dotnet format` style check, builds
-(Debug + Release), runs tests with coverlet coverage, and enforces two
-coverage gates (see Testing below). The Release job also publishes the
-single-file exe. Pushing a `v*` tag triggers a `release` job that creates a
-GitHub Release with the zipped single-file exe attached.
+to `main` (and on version tags): builds (Debug + Release), runs a
+`dotnet format` style check, runs tests with coverlet coverage, and enforces
+two coverage gates (see [Testing](#testing) below). Pushing a `v*` tag also
+triggers a job that publishes a GitHub Release with the single-file exe.
 
-Style is defined in `.editorconfig` and enforced at build time
-(`AnalysisLevel=latest`, `EnforceCodeStyleInBuild=true`) plus the CI
-`dotnet format --verify-no-changes` step.
+## High-level data flow
 
-## Architecture
+```
+   Win32 (SetWinEventHook)                Tray menu / global hotkey
+            │                                        │
+            ▼                                        ▼
+  WindowEventWatcher ─────► RuleEngine (rules.json)
+            │                       │
+            ▼                       ▼
+       ExclusionService ◄──── WindowManager (Win32 style read/write)
+            │                  ExclusionTracker (which HWNDs we excluded)
+            ▼
+   SetWindowLongPtr + SetWindowPos(SWP_FRAMECHANGED)
+            │
+            ▼
+   Shell re-evaluates taskbar / Alt+Tab presence
+```
 
-### Entry point
+## Entry point
 
-- `Program.cs` — WinForms entry point. Acquires a named `Mutex`
+- **`Program.cs`** — WinForms entry point. Acquires a named `Mutex`
   (`Global\AltTabExcluder_SingleInstance`) and exits if another instance is
   running. Wires up all services, creates a `TrayEventCoordinator` to handle
   events, and manages lifecycle (startup sweep + clean teardown). The
   `finally` block in `Main` releases the single-instance `Mutex`.
 
-### Core logic
+## Core logic
 
-- `WindowManager.cs` — **stateless** static class with pure Win32 style
+- **`WindowManager.cs`** — **stateless** static class with pure Win32 style
   logic. The style-bit math (`ComputeExcludedStyle`, `ComputeVisibleStyle`,
   `IsStyleExcluded`) is pure and unit-testable. `GetExtendedStyle` /
   `SetExtendedStyle` read/write via `GetWindowLongPtr` / `SetWindowLongPtr`
@@ -68,96 +83,105 @@ Style is defined in `.editorconfig` and enforced at build time
   re-evaluates taskbar/Alt+Tab presence. `ToggleStyle` / `SetStyle` apply the
   change but do **not** track which HWNDs were excluded — that's the caller's
   job (`ExclusionService`).
-- `ExclusionTracker.cs` — instance-based tracking set for HWNDs AltTabExcluder
-  excluded (vs. natural tool windows). Persisted via `AppSettings` so Quick
-  Exclude can identify our exclusions after restart. `PruneStale` removes
-  invalid HWNDs.
-- `ExclusionService.cs` — the single entry point for all exclusion operations.
-  Orchestrates `WindowManager` (style) + `ExclusionTracker` (tracking):
-  `Toggle`, `SetExcluded`, `IsExcluded`, `WasExcludedByUs`, `RestoreAll`,
-  `PruneStale`. Owned by `Program`, injected into `RuleEngine`,
+- **`ExclusionTracker.cs`** — instance-based tracking set for HWNDs
+  AltTabExcluder excluded (vs. natural tool windows). Persisted via
+  `AppSettings` so Quick Exclude can identify our exclusions after restart.
+  `PruneStale` removes invalid HWNDs.
+- **`ExclusionService.cs`** — the single entry point for all exclusion
+  operations. Orchestrates `WindowManager` (style) + `ExclusionTracker`
+  (tracking): `Toggle`, `SetExcluded`, `IsExcluded`, `WasExcludedByUs`,
+  `RestoreAll`, `PruneStale`. Owned by `Program`, injected into `RuleEngine`,
   `TrayIconManager`, and `WindowEnumerationService`.
 
-### Services (`Services/`)
+This separation is the key testability decision: the pure style-bit math and
+the persistence/tracking layers have no Win32 dependency, so they're fully
+unit-testable. The Win32 calls are isolated in `WindowManager` and the
+enumeration/watcher services.
 
-- `WindowEnumerationService.cs` — `EnumWindows` snapshot of open visible
+## Services (`Services/`)
+
+- **`WindowEnumerationService.cs`** — `EnumWindows` snapshot of open visible
   top-level windows, enriched with process name + icon. Filters out desktop,
   taskbar, IME, tray overflow, `TextInputHost`, and the app's own windows.
   Icons cached by EXE path for the app lifetime. Takes an optional
   `ExclusionService` to populate exclusion state.
-- `WindowInfo.cs` — immutable record: HWND, PID, process name, title, icon,
-  exclusion state.
-- `HotkeyManager.cs` — registers a configurable global hotkey (default
+- **`WindowInfo.cs`** — immutable record: HWND, PID, process name, title,
+  icon, exclusion state.
+- **`HotkeyManager.cs`** — registers a configurable global hotkey (default
   `Win+Alt+X`) via `RegisterHotKey` on a hidden message-only `NativeWindow`
   (`HWND_MESSAGE`). `IDisposable`.
-- `RuleEngine.cs` — JSON persistence to `%APPDATA%\AltTabExcluder\rules.json`
+- **`RuleEngine.cs`** — JSON persistence to `%APPDATA%\AltTabExcluder\rules.json`
   (atomic temp+move write). Rules keyed by process name (case-insensitive).
   `ApplyTo` delegates the style change to an optional callback so the
   persistence layer is decoupled from Win32 and testable in isolation.
   Internal constructor accepts a custom file path for testing.
-- `ProcessRule.cs` — record: `ProcessName`, `Exclude`, `CreatedAt`.
-- `WindowEventWatcher.cs` — `SetWinEventHook(EVENT_OBJECT_CREATE |
+- **`ProcessRule.cs`** — record: `ProcessName`, `Exclude`, `CreatedAt`.
+- **`WindowEventWatcher.cs`** — `SetWinEventHook(EVENT_OBJECT_CREATE |
   EVENT_OBJECT_SHOW)` with `WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS`;
   auto-applies matching rules to newly created **top-level** windows (child
   windows filtered via raw `GetAncestor(GA_ROOT)` P/Invoke). One-shot
   `WinForms.Timer` re-checks windows not yet visible/titled when the event
   fires. `IDisposable`.
-- `AppSettings.cs` — persists to `%APPDATA%\AltTabExcluder\settings.json`.
+- **`AppSettings.cs`** — persists to `%APPDATA%\AltTabExcluder\settings.json`.
   Holds hotkey config, enabled state, and the excluded-by-us HWND list.
   `FormatHotkey` / `KeyToString` for human-readable labels. Internal
   `Load(string)` / `Save(string)` overloads for testing.
-- `AppLogger.cs` — lightweight file logger to
+- **`AppLogger.cs`** — lightweight file logger to
   `%APPDATA%\AltTabExcluder\app.log` with 256 KB size-based rotation.
   Thread-safe. All `Debug.WriteLine` and silent `catch` blocks route here.
   Internal `SetLogDirectory` for test redirection.
-- `Win32Constants.cs` — named constants for MOD_* / VK_* values. Replaces
+- **`Win32Constants.cs`** — named constants for MOD_* / VK_* values. Replaces
   scattered magic numbers.
-- `StartupManager.cs` — `HKCU\...\Run` toggle for "Run at Windows startup"
+- **`StartupManager.cs`** — `HKCU\...\Run` toggle for "Run at Windows startup"
   (per-user, no admin needed).
-- `ElevationDetector.cs` — token-based elevation check via
+- **`ElevationDetector.cs`** — token-based elevation check via
   `NativeElevationInterop` (raw P/Invoke). Cached for the process lifetime.
   Intentionally does not log (called on every WinEvent callback).
-- `NativeElevationInterop.cs` — raw `DllImport` for `OpenProcess` /
+- **`NativeElevationInterop.cs`** — raw `DllImport` for `OpenProcess` /
   `OpenProcessToken` / `GetTokenInformation`. Avoids CsWin32 to sidestep
   cumbersome `SafeHandle` / `TOKEN_ACCESS_MASK` types.
 
-### Tray (`Tray/`)
+## Tray (`Tray/`)
 
-- `TrayIconManager.cs` — owns the `NotifyIcon` and context menu: Quick
+- **`TrayIconManager.cs`** — owns the `NotifyIcon` and context menu: Quick
   Exclude (live per-window toggles), Always Exclude (persistent per-process
   rules), Restore All, Settings (hotkey toggle, change hotkey, startup,
   restart-as-admin), About, Exit. Submenus repopulated on every open.
   Excludes submenus stay open after a click for multi-toggle. Takes
   `RuleEngine` + `ExclusionService`. `IDisposable`.
-- `TrayEventCoordinator.cs` — handles all tray/hotkey event logic: hotkey
+- **`TrayEventCoordinator.cs`** — handles all tray/hotkey event logic: hotkey
   press, hotkey toggle/change, restore-all, startup toggle, about dialog,
   restart-as-admin, shutdown. Extracted from `Program` to keep the entry
   point focused on wiring and lifecycle. Takes all services + teardown
   callbacks (for mutex release + exit).
 
-### UI (`UI/`)
+## UI (`UI/`)
 
-- `HotkeyPickerDialog.cs` — WinForms `Form` capturing a keyboard shortcut via
-  a low-level `WH_KEYBOARD_LL` hook (raw P/Invoke to capture Win-key combos).
-  Requires at least one modifier.
-- `AboutDialog.cs` — modal `Form` with app info, how-it-works, data location,
-  current hotkey, and clickable GitHub link.
+- **`HotkeyPickerDialog.cs`** — WinForms `Form` capturing a keyboard shortcut
+  via a low-level `WH_KEYBOARD_LL` hook (raw P/Invoke to capture Win-key
+  combos). Requires at least one modifier.
+- **`AboutDialog.cs`** — modal `Form` with app info, how-it-works, data
+  location, current hotkey, and clickable GitHub link.
 
 ## Win32 interop
 
-CsWin32 (v0.3.298) generates bindings from `NativeMethods.txt` into
-`Windows.Win32.PInvoke`. Consuming code uses the generated `HWND` / `LPARAM`
-/ `PWSTR` / `HWINEVENTHOOK` types. APIs in `NativeMethods.txt`:
+[CsWin32](https://github.com/microsoft/CsWin32) (v0.3.298) generates bindings
+from `NativeMethods.txt` into `Windows.Win32.PInvoke`. Consuming code uses the
+generated `HWND` / `LPARAM` / `PWSTR` / `HWINEVENTHOOK` types. APIs in
+`NativeMethods.txt`:
+
 `GetForegroundWindow`, `GetWindowLongPtr`, `SetWindowLongPtr`, `SetWindowPos`,
 `IsWindow`, `IsWindowVisible`, `RegisterHotKey`, `UnregisterHotKey`,
 `EnumWindows`, `GetWindowText`, `GetWindowTextLength`, `GetClassName`,
 `GetWindowThreadProcessId`, `SetWinEventHook`, `UnhookWinEvent`.
 
 Three APIs use raw `DllImport` instead of CsWin32 (by design — see file docs):
-`GetAncestor` (`WindowEventWatcher`), `OpenProcess`/`OpenProcessToken`/
-`GetTokenInformation` (`NativeElevationInterop`), `SetWindowsHookEx`/
-`UnhookWindowsHookEx`/`CallNextHookEx`/`GetModuleHandle`
-(`HotkeyPickerDialog`).
+
+- `GetAncestor` (`WindowEventWatcher`)
+- `OpenProcess` / `OpenProcessToken` / `GetTokenInformation`
+  (`NativeElevationInterop`)
+- `SetWindowsHookEx` / `UnhookWindowsHookEx` / `CallNextHookEx` /
+  `GetModuleHandle` (`HotkeyPickerDialog`)
 
 ## Storage
 

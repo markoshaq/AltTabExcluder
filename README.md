@@ -11,7 +11,8 @@ windows from the same app are excluded automatically.
 [![CI](https://github.com/markoshaq/AltTabExcluder/actions/workflows/ci.yml/badge.svg)](https://github.com/markoshaq/AltTabExcluder/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4.svg)](https://dotnet.microsoft.com/download/dotnet/8.0)
-[![Tests](https://img.shields.io/badge/tests-102%20passing-brightgreen.svg)](#development)
+[![Tests](https://img.shields.io/badge/tests-102%20passing-brightgreen.svg)](tests/AltTabExcluder.Tests)
+[![Coverage](https://img.shields.io/badge/coverage-70%25%20per--file%20gate-success.svg)](#development)
 
 [Features](#features) &nbsp;&middot;&nbsp; [Screenshots](#screenshots) &nbsp;&middot;&nbsp; [Install](#install) &nbsp;&middot;&nbsp; [Usage](#usage) &nbsp;&middot;&nbsp; [Build](#build-from-source) &nbsp;&middot;&nbsp; [How It Works](#how-it-works)
 
@@ -70,11 +71,24 @@ window manager.
 
 ## Screenshots
 
-> Screenshots coming soon. The tray menu includes **Quick Exclude** (live
-> window list with checkmarks and process icons), **Always Exclude**
-> (per-process persistent rules), **Restore All**, a **Settings** submenu
-> (hotkey toggle, change hotkey, startup, restart-as-admin), **About**, and
-> **Exit**.
+> **Add images here.** Capture the screenshots below, save them under
+> `docs/screenshots/`, and the embeds below will render automatically.
+> An animated GIF of the hotkey toggling a window out of Alt+Tab is the
+> single most effective asset for reviewers who can't run the app.
+
+| | |
+|:---:|:---:|
+| ![Tray icon in the notification area](docs/screenshots/tray-icon.png) | ![Quick Exclude submenu](docs/screenshots/quick-exclude.png) |
+| _Tray icon (tooltip shows the active hotkey)_ | _Quick Exclude — live window list with checkmarks & process icons_ |
+| ![Always Exclude submenu](docs/screenshots/always-exclude.png) | ![Settings submenu](docs/screenshots/settings.png) |
+| _Always Exclude — persistent per-process rules_ | _Settings — hotkey toggle, change hotkey, startup, restart-as-admin_ |
+| ![Hotkey picker dialog](docs/screenshots/hotkey-picker.png) | ![About dialog](docs/screenshots/about.png) |
+| _Hotkey picker — press any modifier+key combo_ | _About — app info, how-it-works, data location_ |
+
+![Hotkey in action: toggling a window out of Alt+Tab](docs/screenshots/hotkey-demo.gif)
+
+_Hotkey demo: focus a window, press `Win+Alt+X`, and it drops out of the
+switcher instantly._
 
 ## Install
 
@@ -233,10 +247,25 @@ and `ProcessRule` record semantics. Win32/UI code is excluded from unit
 tests (requires a live desktop session) but is covered by manual testing.
 
 CI runs on every push/PR via GitHub Actions (`.github/workflows/ci.yml`):
-Debug build, tests with coverage, Release build, and single-file publish.
-Coverage gates enforce &ge;70% on each testable file.
+Debug build, tests with coverage, Release build, single-file publish, and a
+`dotnet format` style check.
 
-See `AGENTS.md` for the full architecture documentation.
+**Coverage strategy.** Two gates are enforced in CI:
+
+1. An **overall floor** (regression guard only — intentionally low, because
+   Win32/UI/entry-point code can't be unit-tested without a live desktop
+   session).
+2. A **per-file gate of &ge;70%** on each testable logic layer
+   (`AppSettings`, `RuleEngine`, `ExclusionTracker`, `ProcessRule`,
+   `AppLogger`). This is the meaningful quality gate.
+
+`WindowManager`'s pure style-bit math is fully tested, but its Win32 methods
+drag the file's overall number down, so the file is excluded from the
+per-file gate while its math is covered by `WindowManagerStyleMathTests`.
+
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full architecture
+documentation, and [`CONTRIBUTING.md`](CONTRIBUTING.md) for development
+conventions. [`CHANGELOG.md`](CHANGELOG.md) tracks releases.
 
 ## Limitations
 
