@@ -1,0 +1,42 @@
+version: 2
+
+updates:
+  # NuGet dependencies in the main project
+  - package-ecosystem: "nuget"
+    directory: "/src/AltTabExcluder"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "nuget"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+
+  # NuGet dependencies in the test project
+  - package-ecosystem: "nuget"
+    directory: "/tests/AltTabExcluder.Tests"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "nuget"
+      - "tests"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+
+  # GitHub Actions workflow dependencies
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
