@@ -219,4 +219,43 @@ public class ExclusionTrackerTests
         Assert.True(tracker.WasExcludedByUs(new IntPtr(12345), currentPid: 999));
         Assert.True(tracker.WasExcludedByUs(new IntPtr(12345), currentPid: 100));
     }
+
+    // ─── RemoveStale ─────────────────────────────────────────────────────
+
+    [Fact]
+    public void RemoveStale_RemovesSpecifiedHandles()
+    {
+        var tracker = new ExclusionTracker();
+        tracker.Add(new IntPtr(1), pid: 10);
+        tracker.Add(new IntPtr(2), pid: 20);
+        tracker.Add(new IntPtr(3), pid: 30);
+
+        tracker.RemoveStale(new[] { new IntPtr(1), new IntPtr(3) });
+
+        Assert.False(tracker.Contains(new IntPtr(1)));
+        Assert.True(tracker.Contains(new IntPtr(2)));
+        Assert.False(tracker.Contains(new IntPtr(3)));
+    }
+
+    [Fact]
+    public void RemoveStale_WithEmptyList_IsNoOp()
+    {
+        var tracker = new ExclusionTracker();
+        tracker.Add(new IntPtr(1), pid: 10);
+
+        tracker.RemoveStale(Array.Empty<IntPtr>());
+
+        Assert.Single(tracker.Handles);
+    }
+
+    [Fact]
+    public void RemoveStale_WithHandleNotInTracker_IsNoOp()
+    {
+        var tracker = new ExclusionTracker();
+        tracker.Add(new IntPtr(1), pid: 10);
+
+        tracker.RemoveStale(new[] { new IntPtr(999) });
+
+        Assert.Single(tracker.Handles);
+    }
 }

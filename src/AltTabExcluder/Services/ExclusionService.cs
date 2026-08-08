@@ -21,6 +21,11 @@ namespace AltTabExcluder.Services;
 /// current PID matches the PID stored at exclusion time, so recycled HWNDs
 /// (same value, different process) are correctly rejected.
 /// </para>
+/// <para>
+/// This class owns all Win32 calls related to tracking (PID lookup via
+/// <c>GetWindowThreadProcessId</c>, validity checks via <c>IsWindow</c>) so
+/// that <see cref="ExclusionTracker"/> remains pure and unit-testable.
+/// </para>
 /// </summary>
 public sealed class ExclusionService
 {
@@ -57,7 +62,7 @@ public sealed class ExclusionService
     {
         bool nowExcluded = WindowManager.ToggleStyle(hwnd);
         if (nowExcluded)
-            Tracker.Add(hwnd);
+            Tracker.Add(hwnd, GetPidForHwnd(hwnd));
         else
             Tracker.Remove(hwnd);
     }
@@ -67,7 +72,7 @@ public sealed class ExclusionService
     {
         WindowManager.SetStyle(hwnd, excluded);
         if (excluded)
-            Tracker.Add(hwnd);
+            Tracker.Add(hwnd, GetPidForHwnd(hwnd));
         else
             Tracker.Remove(hwnd);
     }
@@ -81,7 +86,7 @@ public sealed class ExclusionService
     /// </summary>
     public int RestoreAll()
     {
-        Tracker.PruneStale();
+        PruneStale();
         var handles = Tracker.Handles.ToList();
         int count = 0;
         foreach (var entry in handles)
@@ -112,7 +117,14 @@ public sealed class ExclusionService
     /// Removes stale HWNDs from the tracking set. Call when the tray menu opens
     /// to prevent stale entries from accumulating.
     /// </summary>
-    public void PruneStale() => Tracker.PruneStale();
+    public void PruneStale()
+    {
+        var stale = Tracker.Handles
+            .Where(h => !PInvoke.IsWindow((HWND)h.Hwnd))
+            .Select(h => h.Hwnd)
+            .ToList();
+        Tracker.RemoveStale(stale);
+    }
 
     /// <summary>Gets the PID for the given HWND via GetWindowThreadProcessId.</summary>
     private static uint GetPidForHwnd(IntPtr hwnd)

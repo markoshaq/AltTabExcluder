@@ -1,6 +1,3 @@
-using Windows.Win32;
-using Windows.Win32.Foundation;
-
 namespace AltTabExcluder.Services;
 
 /// <summary>
@@ -21,6 +18,10 @@ namespace AltTabExcluder.Services;
 /// owned by <see cref="ExclusionService"/>. The HWND+PID set is persisted via
 /// <see cref="AppSettings"/> so Quick Exclude can identify our exclusions after
 /// restart.
+/// </para>
+/// <para>
+/// This class is <em>pure</em> — no Win32 calls. Win32-dependent operations
+/// (pruning invalid HWNDs, PID lookup) live in <see cref="ExclusionService"/>.
 /// </para>
 /// </summary>
 public sealed class ExclusionTracker
@@ -90,51 +91,20 @@ public sealed class ExclusionTracker
     public void Add(IntPtr hwnd, uint pid) => _handles[hwnd] = pid;
 
     /// <summary>
-    /// Marks an HWND as excluded by us with PID lookup via
-    /// <c>GetWindowThreadProcessId</c>. Convenience overload for callers that
-    /// don't already have the PID.
+    /// Removes HWNDs from the tracking set that are in the provided set of
+    /// stale handles. Pure — does not call Win32. The caller
+    /// (<see cref="ExclusionService"/>) is responsible for determining which
+    /// HWNDs are stale via <c>IsWindow</c>.
     /// </summary>
-    public void Add(IntPtr hwnd)
+    public void RemoveStale(IEnumerable<IntPtr> staleHandles)
     {
-        uint pid = GetPidForHwnd(hwnd);
-        _handles[hwnd] = pid;
+        foreach (var h in staleHandles)
+            _handles.Remove(h);
     }
 
     /// <summary>Removes an HWND from the excluded-by-us set.</summary>
     public void Remove(IntPtr hwnd) => _handles.Remove(hwnd);
 
-    /// <summary>
-    /// Removes HWNDs from the tracking set that are no longer valid windows.
-    /// Call this periodically (e.g. when the tray menu opens) to prevent stale
-    /// entries from accumulating and to avoid false positives from HWND recycling.
-    /// </summary>
-    public void PruneStale()
-    {
-        var stale = _handles.Where(kv => !PInvoke.IsWindow((HWND)kv.Key))
-            .Select(kv => kv.Key)
-            .ToList();
-        foreach (var h in stale)
-            _handles.Remove(h);
-    }
-
     /// <summary>Clears all tracked HWNDs.</summary>
     public void Clear() => _handles.Clear();
-
-    /// <summary>Gets the PID for the given HWND via GetWindowThreadProcessId.</summary>
-    private static uint GetPidForHwnd(IntPtr hwnd)
-    {
-        try
-        {
-            unsafe
-            {
-                uint pid;
-                _ = PInvoke.GetWindowThreadProcessId((HWND)hwnd, &pid);
-                return pid;
-            }
-        }
-        catch
-        {
-            return 0;
-        }
-    }
 }

@@ -111,7 +111,7 @@ public class ExclusionServiceIntegrationTests : IDisposable
     {
         // Add a fake (invalid) HWND to the tracker.
         IntPtr fakeHwnd = new(0x12345678);
-        _tracker.Add(fakeHwnd);
+        _tracker.Add(fakeHwnd, pid: 999);
         Assert.True(_tracker.Contains(fakeHwnd));
 
         _exclusion.PruneStale();
@@ -123,7 +123,7 @@ public class ExclusionServiceIntegrationTests : IDisposable
     public void PruneStale_KeepsValidHandles()
     {
         IntPtr hwnd = _form.Handle;
-        _tracker.Add(hwnd);
+        _tracker.Add(hwnd, pid: (uint)Environment.ProcessId);
 
         _exclusion.PruneStale();
 
