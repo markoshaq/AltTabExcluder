@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
 
@@ -26,6 +27,12 @@ jobs:
 
       - name: Restore
         run: dotnet restore
+
+      - name: Verify formatting (dotnet format)
+        # Fails the build if any file would be reformatted. Style rules are
+        # defined in .editorconfig and enforced at build time via
+        # EnforceCodeStyleInBuild; this step catches whitespace/format drift.
+        run: dotnet format AltTabExcluder.sln --verify-no-changes --no-restore
 
       - name: Build (Debug)
         run: dotnet build --no-restore -c Debug
@@ -51,6 +58,13 @@ jobs:
           $overallBranch = [math]::Round([double]$xml.coverage.'branch-rate' * 100, 1)
           Write-Host "Overall line coverage: $overallLine%"
           Write-Host "Overall branch coverage: $overallBranch%"
+
+          # Surface the coverage strategy as a workflow notice so the low
+          # overall number is not misread. The overall floor is intentionally
+          # low because Win32/UI/entry-point code (which requires a live
+          # desktop session) is excluded from unit tests; the meaningful gate
+          # is the per-file 70% floor on the testable logic layers below.
+          Write-Host "::notice::Coverage strategy: overall floor is a regression guard only (Win32/UI is untestable without a desktop session). The enforced quality gate is >=70% line coverage on each testable logic layer (AppSettings, RuleEngine, ExclusionTracker, ProcessRule, AppLogger). See the per-file table below."
 
           # --- Gate 1: Overall floor (catches total regressions) ---
           $overallGate = 10.0
@@ -137,3 +151,44 @@ jobs:
 
       - name: Publish single-file
         run: dotnet publish --no-restore -c Release -p:PublishProfile=SingleFile
+
+  release:
+    name: Publish GitHub Release
+    # Only runs when a version tag (v*) is pushed. Builds the single-file exe
+    # and attaches it to a GitHub Release so the README's "Pre-built binary"
+    # link always resolves to a downloadable artifact.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-and-test, release-build]
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish single-file exe
+        run: dotnet publish -c Release -p:PublishProfile=SingleFile
+
+      - name: Zip publish output
+        shell: pwsh
+        run: |
+          $publishDir = "src\AltTabExcluder\bin\x64\Release\net8.0-windows\win-x64\publish"
+          Compress-Archive -Path "$publishDir\*" -DestinationPath "AltTabExcluder-$env:GITHUB_REF_NAME.zip"
+
+      - name: Create release & upload asset
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          gh release create $tag `
+            "AltTabExcluder-$tag.zip" `
+            --title $tag `
+            --generate-notes `
+            --verify-tag
