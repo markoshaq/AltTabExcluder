@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/screenshots/app-icon.png" width="80" height="80" alt="AltTabExcluder icon">
+
 # AltTabExcluder
 
 **Keep clutter out of your Alt+Tab switcher.**
@@ -11,7 +13,6 @@ windows from the same app are excluded automatically.
 [![CI](https://github.com/markoshaq/AltTabExcluder/actions/workflows/ci.yml/badge.svg)](https://github.com/markoshaq/AltTabExcluder/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4.svg)](https://dotnet.microsoft.com/download/dotnet/8.0)
-[![Tests](https://img.shields.io/badge/tests-102%20passing-brightgreen.svg)](tests/AltTabExcluder.Tests)
 [![Coverage](https://img.shields.io/badge/coverage-70%25%20per--file%20gate-success.svg)](#development)
 
 [Features](#features) &nbsp;&middot;&nbsp; [Screenshots](#screenshots) &nbsp;&middot;&nbsp; [Install](#install) &nbsp;&middot;&nbsp; [Usage](#usage) &nbsp;&middot;&nbsp; [Build](#build-from-source) &nbsp;&middot;&nbsp; [How It Works](#how-it-works)
@@ -71,11 +72,6 @@ window manager.
 
 ## Screenshots
 
-> **Add images here.** Capture the screenshots below, save them under
-> `docs/screenshots/`, and the embeds below will render automatically.
-> An animated GIF of the hotkey toggling a window out of Alt+Tab is the
-> single most effective asset for reviewers who can't run the app.
-
 | | |
 |:---:|:---:|
 | ![Tray icon in the notification area](docs/screenshots/tray-icon.png) | ![Quick Exclude submenu](docs/screenshots/quick-exclude.png) |
@@ -85,7 +81,7 @@ window manager.
 | ![Hotkey picker dialog](docs/screenshots/hotkey-picker.png) | ![About dialog](docs/screenshots/about.png) |
 | _Hotkey picker — press any modifier+key combo_ | _About — app info, how-it-works, data location_ |
 
-![Hotkey in action: toggling a window out of Alt+Tab](docs/screenshots/hotkey-demo.gif)
+![Hotkey in action: toggling a window out of Alt+Tab](docs/screenshots/demo.gif)
 
 _Hotkey demo: focus a window, press `Win+Alt+X`, and it drops out of the
 switcher instantly._
@@ -230,7 +226,7 @@ rather than crashing the app).
 - **.NET 8** (`net8.0-windows`, x64)
 - **WinForms** — tray icon, context menus, hotkey picker, about dialog
 - **CsWin32** — source-generated Win32 P/Invoke bindings
-- **xUnit + coverlet** — 102 unit tests with code coverage gates in CI
+- **xUnit + coverlet** — unit tests with dual code coverage gates in CI
 - **No WPF, no third-party dependencies** (beyond test tooling)
 
 ## Development

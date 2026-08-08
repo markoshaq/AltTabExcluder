@@ -25,9 +25,6 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.Windows.CsWin32" Version="0.3.298">
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
     <!-- Coverlet.msbuild for code coverage. Instruments at build time and
          emits a cobertura report when CollectCoverage=true. Configuration
          (includes/excludes) is in coverlet.runsettings for the collector, and
@@ -46,12 +43,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\AltTabExcluder\AltTabExcluder.csproj" />
-  </ItemGroup>
-
-  <!-- CsWin32 needs the NativeMethods.txt to generate the same Win32 bindings
-       the main project uses (for tests that touch Win32 types like HWND). -->
-  <ItemGroup>
-    <AdditionalFiles Include="NativeMethods.txt" />
   </ItemGroup>
 
 </Project>

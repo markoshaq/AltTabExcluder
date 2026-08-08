@@ -19,7 +19,7 @@ dotnet build -c Debug
 dotnet test
 ```
 
-All 102 tests should pass before you start.
+All tests should pass before you start.
 
 ## Workflow
 
@@ -37,7 +37,7 @@ All 102 tests should pass before you start.
 # Build (analyzers run at build time; warnings must be clean)
 dotnet build -c Debug
 
-# Tests (102 expected)
+# Tests
 dotnet test
 
 # Formatting — must report no changes

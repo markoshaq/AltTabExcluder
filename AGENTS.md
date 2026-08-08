@@ -14,7 +14,7 @@ hotkey.
 ```powershell
 dotnet restore
 dotnet build -c Debug
-dotnet test                          # 102 unit tests
+dotnet test                          # unit tests (see tests/ dir)
 dotnet run --project src\AltTabExcluder
 ```
 
@@ -178,7 +178,7 @@ Test project: `tests/AltTabExcluder.Tests/` (xUnit, `net8.0-windows`).
 dotnet test
 ```
 
-102 tests covering the testable (non-Win32-UI) layers:
+Tests covering the testable (non-Win32-UI) layers:
 
 - **`WindowManagerStyleMathTests`** — pure style-bit math: bit manipulation,
   other-bit preservation, idempotency, round-trip correctness.
