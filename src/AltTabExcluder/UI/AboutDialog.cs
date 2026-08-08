@@ -28,7 +28,7 @@ public sealed class AboutDialog : Form
         MaximizeBox = false;
         MinimizeBox = false;
         Width = 440;
-        Height = 460;
+        Height = 520;
 
         // ─── Header: icon + title + version ──────────────────────────────
 
@@ -104,11 +104,15 @@ public sealed class AboutDialog : Form
                 "     of that process are auto-excluded on launch.\r\n" +
                 "\r\n" +
                 "The app toggles the WS_EX_TOOLWINDOW / WS_EX_APPWINDOW extended\r\n" +
-                "window styles on target window handles.",
+                "window styles on target window handles.\r\n" +
+                "\r\n" +
+                "Note: excluded windows also disappear from the taskbar. This is a\r\n" +
+                "limitation of the WS_EX_TOOLWINDOW style — there is no way to hide\r\n" +
+                "a window from Alt+Tab only.",
             Left = 16,
             Top = 108,
             Width = 400,
-            Height = 130,
+            Height = 190,
         };
         Controls.Add(howItWorks);
 
@@ -118,7 +122,7 @@ public sealed class AboutDialog : Form
         {
             Text = $"Current hotkey: {hotkeyLabel}",
             Left = 16,
-            Top = 248,
+            Top = 308,
             Width = 400,
             Height = 20,
         };
@@ -131,7 +135,7 @@ public sealed class AboutDialog : Form
             Text = $"Settings & rules: {dataDir}",
             ForeColor = SystemColors.GrayText,
             Left = 16,
-            Top = 274,
+            Top = 334,
             Width = 400,
             Height = 20,
         };
@@ -143,7 +147,7 @@ public sealed class AboutDialog : Form
         {
             Text = "Developed by Marko  —  github.com/markoshaq",
             Left = 16,
-            Top = 300,
+            Top = 360,
             Width = 400,
             Height = 20,
         };
@@ -161,7 +165,7 @@ public sealed class AboutDialog : Form
         {
             Text = "Close",
             Left = 336,
-            Top = 388,
+            Top = 448,
             Width = 80,
             DialogResult = DialogResult.OK,
         };

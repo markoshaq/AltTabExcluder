@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+- Live coverage badge in README (shields.io endpoint reading a JSON file
+  pushed to a `badges` branch by CI on every main push).
+- Taskbar limitation documented in the README and the About dialog
+  (excluded windows also disappear from the taskbar — inherent to
+  `WS_EX_TOOLWINDOW`).
 
 ## [0.1.0] - 2026-08-08
 

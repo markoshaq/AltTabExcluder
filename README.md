@@ -13,7 +13,7 @@ windows from the same app are excluded automatically.
 [![CI](https://github.com/markoshaq/AltTabExcluder/actions/workflows/ci.yml/badge.svg)](https://github.com/markoshaq/AltTabExcluder/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4.svg)](https://dotnet.microsoft.com/download/dotnet/8.0)
-[![Coverage](https://img.shields.io/badge/coverage-70%25%20per--file%20gate-success.svg)](#development)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/markoshaq/AltTabExcluder/badges/coverage.json)](#development)
 
 [Features](#features) &nbsp;&middot;&nbsp; [Screenshots](#screenshots) &nbsp;&middot;&nbsp; [Install](#install) &nbsp;&middot;&nbsp; [Usage](#usage) &nbsp;&middot;&nbsp; [Build](#build-from-source) &nbsp;&middot;&nbsp; [How It Works](#how-it-works)
 
@@ -265,6 +265,9 @@ conventions. [`CHANGELOG.md`](CHANGELOG.md) tracks releases.
 
 ## Limitations
 
+- **Taskbar visibility** — excluding a window from Alt+Tab also removes it
+  from the taskbar. This is inherent to the `WS_EX_TOOLWINDOW` style; there
+  is no Win32 mechanism to hide a window from Alt+Tab alone.
 - **Elevated windows** require AltTabExcluder to also run elevated (UIPI).
   The app detects this and offers a restart-as-admin action.
 - **Child windows** are not listed in Quick Exclude — only top-level

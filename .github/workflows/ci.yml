@@ -15,6 +15,9 @@ jobs:
   build-and-test:
     name: Build, Test & Coverage
     runs-on: windows-latest
+    permissions:
+      contents: write # for pushing the coverage badge to the badges branch
+      checks: write   # for test report publishing
 
     steps:
       - name: Checkout
@@ -129,6 +132,41 @@ jobs:
           path: ./coverage/**/*cobertura.xml
           if-no-files-found: ignore
           retention-days: 14
+
+      - name: Update live coverage badge
+        # Only on main pushes (not PRs) — pushes a shields.io endpoint JSON
+        # to the 'badges' branch so the README badge reflects real coverage.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          $report = Get-ChildItem -Recurse ./coverage -Filter "coverage.cobertura.xml" | Select-Object -First 1
+          if ($null -eq $report) { Write-Host "No coverage report — skipping badge."; exit 0 }
+          [xml]$xml = Get-Content $report.FullName
+
+          # Compute the minimum per-file rate across the testable logic layers.
+          $testableFiles = @('AppSettings.cs','RuleEngine.cs','ExclusionTracker.cs','ProcessRule.cs','AppLogger.cs')
+          $perFileGate = 70.0
+          $minRate = 100.0
+          foreach ($target in $testableFiles) {
+            $class = $xml.SelectNodes("//class") |
+              Where-Object { $_.filename -notmatch "obj\\" -and $_.filename -notmatch "\.g\.cs" -and $_.filename -like "*$target" } |
+              Select-Object -First 1
+            if ($null -ne $class) {
+              $rate = [math]::Round([double]$class.'line-rate' * 100, 1)
+              if ($rate -lt $minRate) { $minRate = $rate }
+            }
+          }
+
+          $color = if ($minRate -ge $perFileGate) { "green" } else { "red" }
+          $badge = @{ schemaVersion = 1; label = "coverage"; message = "$minRate% per-file gate"; color = $color } | ConvertTo-Json -Compress
+          [System.IO.File]::WriteAllText("coverage.json", $badge)
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B badges
+          git add coverage.json
+          git commit -m "Update coverage badge [skip ci]" || echo "No changes"
+          git push origin badges --force
 
   release-build:
     name: Release Build & Publish
