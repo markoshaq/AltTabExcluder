@@ -143,8 +143,8 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Restore
-        run: dotnet restore
+      - name: Restore (for win-x64 single-file publish)
+        run: dotnet restore -r win-x64
 
       - name: Build (Release)
         run: dotnet build --no-restore -c Release
