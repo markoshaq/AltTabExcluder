@@ -29,7 +29,7 @@
          emits a cobertura report when CollectCoverage=true. Configuration
          (includes/excludes) is in coverlet.runsettings for the collector, and
          in MSBuild properties for the msbuild approach. -->
-    <PackageReference Include="coverlet.msbuild" Version="6.0.2">
+    <PackageReference Include="coverlet.msbuild" Version="10.0.1">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
