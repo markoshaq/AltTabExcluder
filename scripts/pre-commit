@@ -1,0 +1,4 @@
+#!/bin/sh
+# Pre-commit hook: verifies code formatting before allowing a commit.
+# Install with: scripts/install-hooks.ps1
+dotnet format AltTabExcluder.sln --verify-no-changes --no-restore

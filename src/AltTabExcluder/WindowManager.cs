@@ -5,19 +5,22 @@ using Windows.Win32.UI.WindowsAndMessaging;
 namespace AltTabExcluder;
 
 /// <summary>
-/// Pure Win32 window-style logic for excluding a window from the Alt+Tab switcher.
-/// This class is <em>stateless</em> — all tracking of which HWNDs we excluded
-/// lives in <see cref="Services.ExclusionTracker"/> / <see cref="Services.ExclusionService"/>.
+/// Win32 window-style read/write logic for excluding a window from the Alt+Tab
+/// switcher. This class is <em>stateless</em> — all tracking of which HWNDs we
+/// excluded lives in <see cref="Services.ExclusionTracker"/> /
+/// <see cref="Services.ExclusionService"/>.
 ///
 /// <para>
-/// Hiding from Alt+Tab is achieved by applying <see cref="WS_EX_TOOLWINDOW"/> and
-/// stripping <see cref="WS_EX_APPWINDOW"/>. Showing again does the reverse. These
-/// style changes take effect immediately for the shell's task switcher.
+/// The pure style-bit math (<see cref="WindowStyleMath.ComputeExcludedStyle"/> /
+/// <see cref="WindowStyleMath.ComputeVisibleStyle"/> / <see cref="WindowStyleMath.IsStyleExcluded"/>)
+/// has been extracted into <see cref="WindowStyleMath"/> so it can be unit-tested
+/// in isolation. This class handles only the Win32 interop (reading/writing
+/// extended styles and broadcasting frame changes).
 /// </para>
 /// <para>
-/// The style-bit computation (<see cref="ComputeExcludedStyle"/> /
-/// <see cref="ComputeVisibleStyle"/>) is pure and unit-testable without any
-/// Win32 interaction.
+/// Hiding from Alt+Tab is achieved by applying <c>WS_EX_TOOLWINDOW</c> and
+/// stripping <c>WS_EX_APPWINDOW</c>. Showing again does the reverse. These
+/// style changes take effect immediately for the shell's task switcher.
 /// </para>
 /// </summary>
 public static class WindowManager
@@ -25,44 +28,14 @@ public static class WindowManager
     // GWL_EXSTYLE index for GetWindowLongPtr / SetWindowLongPtr.
     private static readonly WINDOW_LONG_PTR_INDEX GWL_EXSTYLE = (WINDOW_LONG_PTR_INDEX)(-20);
 
-    /// <summary>Extended window style: tool window (hidden from Alt+Tab/taskbar).</summary>
-    public const uint WS_EX_TOOLWINDOW = 0x00000080;
-
-    /// <summary>Extended window style: app window (forced onto the taskbar/Alt+Tab).</summary>
-    public const uint WS_EX_APPWINDOW = 0x00040000;
-
-    // ─── Pure style-bit math (no Win32 calls, unit-testable) ─────────────
-
-    /// <summary>
-    /// Computes the extended style that hides a window from Alt+Tab: adds
-    /// <see cref="WS_EX_TOOLWINDOW"/>, strips <see cref="WS_EX_APPWINDOW"/>.
-    /// </summary>
-    public static uint ComputeExcludedStyle(uint currentStyle)
-        => (currentStyle | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW;
-
-    /// <summary>
-    /// Computes the extended style that restores a window to Alt+Tab: strips
-    /// <see cref="WS_EX_TOOLWINDOW"/>, adds <see cref="WS_EX_APPWINDOW"/>.
-    /// </summary>
-    public static uint ComputeVisibleStyle(uint currentStyle)
-        => (currentStyle & ~WS_EX_TOOLWINDOW) | WS_EX_APPWINDOW;
-
-    /// <summary>
-    /// Returns <c>true</c> if <paramref name="style"/> carries the
-    /// <see cref="WS_EX_TOOLWINDOW"/> bit (i.e. the window is excluded from
-    /// Alt+Tab).
-    /// </summary>
-    public static bool IsStyleExcluded(uint style)
-        => (style & WS_EX_TOOLWINDOW) != 0;
-
     // ─── Win32 style read/write ──────────────────────────────────────────
 
     /// <summary>
     /// Returns <c>true</c> when <paramref name="hwnd"/> is currently excluded from
-    /// Alt+Tab (i.e. it carries the <see cref="WS_EX_TOOLWINDOW"/> style).
+    /// Alt+Tab (i.e. it carries the <c>WS_EX_TOOLWINDOW</c> style).
     /// </summary>
     public static bool IsWindowExcluded(IntPtr hwnd)
-        => IsStyleExcluded(GetExtendedStyle(hwnd));
+        => WindowStyleMath.IsStyleExcluded(GetExtendedStyle(hwnd));
 
     /// <summary>
     /// Reads the current extended window style of <paramref name="hwnd"/>.
@@ -101,10 +74,10 @@ public static class WindowManager
     public static bool ToggleStyle(IntPtr hwnd)
     {
         uint ex = GetExtendedStyle(hwnd);
-        bool isExcluded = IsStyleExcluded(ex);
+        bool isExcluded = WindowStyleMath.IsStyleExcluded(ex);
         uint newStyle = isExcluded
-            ? ComputeVisibleStyle(ex)
-            : ComputeExcludedStyle(ex);
+            ? WindowStyleMath.ComputeVisibleStyle(ex)
+            : WindowStyleMath.ComputeExcludedStyle(ex);
         SetExtendedStyle(hwnd, newStyle);
         return !isExcluded; // now excluded if it wasn't before, and vice versa
     }
@@ -118,8 +91,8 @@ public static class WindowManager
     {
         uint ex = GetExtendedStyle(hwnd);
         uint newStyle = excluded
-            ? ComputeExcludedStyle(ex)
-            : ComputeVisibleStyle(ex);
+            ? WindowStyleMath.ComputeExcludedStyle(ex)
+            : WindowStyleMath.ComputeVisibleStyle(ex);
 
         if (newStyle != ex)
             SetExtendedStyle(hwnd, newStyle);

@@ -43,9 +43,17 @@ jobs:
       - name: Test with coverage
         run: >
           dotnet test --no-build -c Debug
+          --filter "Category!=Integration"
           --collect:"XPlat Code Coverage"
           --settings tests/AltTabExcluder.Tests/coverlet.runsettings
           --results-directory ./coverage
+
+      - name: Run integration tests
+        # Integration tests require a live desktop session (windows-latest
+        # runners run in an interactive session). They are tagged with
+        # [Trait("Category","Integration")] and filtered separately from the
+        # unit test / coverage run above.
+        run: dotnet test --no-build -c Debug --filter "Category=Integration"
 
       - name: Parse coverage & enforce gates
         shell: pwsh
@@ -59,33 +67,26 @@ jobs:
           [xml]$xml = Get-Content $report.FullName
           $overallLine = [math]::Round([double]$xml.coverage.'line-rate' * 100, 1)
           $overallBranch = [math]::Round([double]$xml.coverage.'branch-rate' * 100, 1)
-          Write-Host "Overall line coverage: $overallLine%"
-          Write-Host "Overall branch coverage: $overallBranch%"
+          Write-Host "Overall line coverage: $overallLine% (informational — not a gate)"
+          Write-Host "Overall branch coverage: $overallBranch% (informational — not a gate)"
 
-          # Surface the coverage strategy as a workflow notice so the low
-          # overall number is not misread. The overall floor is intentionally
-          # low because Win32/UI/entry-point code (which requires a live
-          # desktop session) is excluded from unit tests; the meaningful gate
-          # is the per-file 70% floor on the testable logic layers below.
-          Write-Host "::notice::Coverage strategy: overall floor is a regression guard only (Win32/UI is untestable without a desktop session). The enforced quality gate is >=70% line coverage on each testable logic layer (AppSettings, RuleEngine, ExclusionTracker, ProcessRule, AppLogger). See the per-file table below."
+          # Surface the coverage strategy as a workflow notice. The overall
+          # number is low because Win32/UI/entry-point code (which requires
+          # a live desktop session) is excluded from unit tests; the
+          # meaningful quality gate is the per-file 70% floor on each
+          # testable logic layer below.
+          Write-Host "::notice::Coverage strategy: the enforced quality gate is >=70% line coverage on each testable logic layer (WindowStyleMath, AppSettings, RuleEngine, ExclusionTracker, ProcessRule, AppLogger). The overall number is informational only. See the per-file table below."
 
-          # --- Gate 1: Overall floor (catches total regressions) ---
-          $overallGate = 10.0
-          if ($overallLine -lt $overallGate) {
-            Write-Host "::error::Overall line coverage $overallLine% is below the $overallGate% floor."
-            exit 1
-          }
-          Write-Host "Overall floor ($overallGate%) passed."
-
-          # --- Gate 2: Per-file gate on testable logic layers ---
+          # --- Single gate: per-file >=70% on testable logic layers ---
           # These are the pure/non-Win32 files that MUST be unit-tested.
-          # Win32/UI/entry-point files are excluded from this gate because
-          # they require a live Windows desktop session.
-          # WindowManager.cs is excluded — its pure style-bit math is tested
-          # via WindowManagerStyleMathTests, but the Win32 methods
-          # (GetExtendedStyle, SetExtendedStyle, ToggleStyle, SetStyle) drag
-          # the file-level coverage below the gate.
+          # Win32/UI/entry-point files are excluded from coverage measurement
+          # (see coverlet.runsettings) because they require a live Windows
+          # desktop session. WindowManager.cs is excluded — its pure style-bit
+          # math was extracted into WindowStyleMath.cs (which IS gated), and
+          # the remaining Win32 interop methods are untestable without a
+          # desktop session.
           $testableFiles = @(
+            'WindowStyleMath.cs',
             'AppSettings.cs',
             'RuleEngine.cs',
             'ExclusionTracker.cs',
@@ -122,7 +123,7 @@ jobs:
             exit 1
           }
           Write-Host ""
-          Write-Host "All coverage gates passed."
+          Write-Host "Coverage gate passed — all testable logic layers >= $perFileGate%."
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v7
@@ -144,7 +145,7 @@ jobs:
           [xml]$xml = Get-Content $report.FullName
 
           # Compute the minimum per-file rate across the testable logic layers.
-          $testableFiles = @('AppSettings.cs','RuleEngine.cs','ExclusionTracker.cs','ProcessRule.cs','AppLogger.cs')
+          $testableFiles = @('WindowStyleMath.cs','AppSettings.cs','RuleEngine.cs','ExclusionTracker.cs','ProcessRule.cs','AppLogger.cs')
           $perFileGate = 70.0
           $minRate = 100.0
           foreach ($target in $testableFiles) {
@@ -228,8 +229,75 @@ jobs:
             exit 1
           }
           Write-Host "Found exe at: $($exe.FullName)"
-          # Exclude .pdb (debug symbols) from the release zip
-          Compress-Archive -Path $exe.FullName -DestinationPath "AltTabExcluder-$env:GITHUB_REF_NAME.zip"
+
+          # Generate SHA256 checksum in coreutils format (<hash>  <filename>).
+          $hash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLower()
+          "$hash  AltTabExcluder.exe" | Out-File -Encoding ascii "checksums.sha256"
+          Write-Host "Checksum: $hash"
+
+          # Write a plain-text README for inside the zip.
+          $version = $env:GITHUB_REF_NAME
+          $readmeContent = @"
+          AltTabExcluder $version
+          =======================
+
+          Keep clutter out of your Alt+Tab switcher.
+
+          A lightweight Windows system-tray utility that lets you hide any
+          window from the Alt+Tab switcher — and optionally remember that
+          choice so future windows from the same app are excluded
+          automatically.
+
+          QUICK START
+          -----------
+          Just run AltTabExcluder.exe — no installation needed.
+
+          Press Win+Alt+X to hide the focused window from Alt+Tab.
+          Press it again to restore it.
+
+          Right-click the tray icon for Quick Exclude (pick from open
+          windows), Always Exclude (persistent per-process rules), Restore
+          All, and Settings (change hotkey, run at startup, etc.).
+
+          SYSTEM REQUIREMENTS
+          -------------------
+          Windows 10/11 x64. No .NET installation required (self-contained).
+
+          DATA LOCATION
+          -------------
+          %APPDATA%\AltTabExcluder\
+            settings.json  - hotkey config + excluded-by-us tracking
+            rules.json     - persistent per-process exclusion rules
+            app.log        - rotating log file (256 KB max)
+
+          VERIFY INTEGRITY
+          ----------------
+          The SHA256 hash of AltTabExcluder.exe is in checksums.sha256.
+          Verify with PowerShell:
+            (Get-FileHash AltTabExcluder.exe -Algorithm SHA256).Hash
+
+          FULL DOCUMENTATION
+          ------------------
+          https://github.com/markoshaq/AltTabExcluder
+
+          LICENSE
+          -------
+          MIT — see LICENSE.txt in this archive.
+          "@
+          $readmeContent | Out-File -Encoding utf8 "README.txt"
+
+          # Copy the repo LICENSE into the zip as LICENSE.txt.
+          Copy-Item "LICENSE" "LICENSE.txt" -ErrorAction SilentlyContinue
+          if (-not (Test-Path "LICENSE.txt")) {
+            # Fallback if LICENSE file is missing.
+            "MIT License - see https://github.com/markoshaq/AltTabExcluder" | Out-File -Encoding utf8 "LICENSE.txt"
+          }
+
+          # Build the zip with all four files.
+          $zipPath = "AltTabExcluder-$env:GITHUB_REF_NAME.zip"
+          Compress-Archive -Path $exe.FullName, "checksums.sha256", "README.txt", "LICENSE.txt" `
+            -DestinationPath $zipPath
+          Write-Host "Created $zipPath with exe, checksums, README, and LICENSE."
 
       - name: Create release & upload asset
         shell: pwsh
@@ -237,8 +305,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = $env:GITHUB_REF_NAME
+          # Upload the zip and the standalone checksum file as release assets.
           gh release create $tag `
             "AltTabExcluder-$tag.zip" `
+            "checksums.sha256" `
             --title $tag `
             --generate-notes `
             --verify-tag

@@ -14,7 +14,10 @@ hotkey.
 ```powershell
 dotnet restore
 dotnet build -c Debug
-dotnet test                          # unit tests (see tests/ dir)
+dotnet test --filter "Category!=Integration"  # unit tests
+dotnet test --filter "Category=Integration"   # integration tests (desktop session)
+scripts\format.ps1                             # auto-fix style
+scripts\format-check.ps1                       # verify style (CI-equivalent)
 dotnet run --project src\AltTabExcluder
 ```
 
@@ -39,8 +42,8 @@ reflection; the SDK blocks it with `NETSDK1175`).
 
 GitHub Actions workflow at `.github/workflows/ci.yml` runs on every push/PR
 to `main` (and on `v*` tags): runs a `dotnet format` style check, builds
-(Debug + Release), runs tests with coverlet coverage, and enforces two
-coverage gates (see Testing below). The Release job also publishes the
+(Debug + Release), runs tests with coverlet coverage, and enforces a
+per-file coverage gate (see Testing below). The Release job also publishes the
 single-file exe. Pushing a `v*` tag triggers a `release` job that creates a
 GitHub Release with the zipped single-file exe attached.
 
@@ -60,23 +63,29 @@ Style is defined in `.editorconfig` and enforced at build time
 
 ### Core logic
 
-- `WindowManager.cs` — **stateless** static class with pure Win32 style
-  logic. The style-bit math (`ComputeExcludedStyle`, `ComputeVisibleStyle`,
-  `IsStyleExcluded`) is pure and unit-testable. `GetExtendedStyle` /
-  `SetExtendedStyle` read/write via `GetWindowLongPtr` / `SetWindowLongPtr`
-  with a `SetWindowPos(SWP_FRAMECHANGED)` broadcast so the shell immediately
-  re-evaluates taskbar/Alt+Tab presence. `ToggleStyle` / `SetStyle` apply the
+- `WindowStyleMath.cs` — **stateless** static class with pure style-bit math
+  (`ComputeExcludedStyle`, `ComputeVisibleStyle`, `IsStyleExcluded`) and the
+  `WS_EX_TOOLWINDOW` / `WS_EX_APPWINDOW` constants. No Win32 calls — fully
+  unit-testable.
+- `WindowManager.cs` — **stateless** static class with Win32 style read/write.
+  `GetExtendedStyle` / `SetExtendedStyle` read/write via `GetWindowLongPtr` /
+  `SetWindowLongPtr` with a `SetWindowPos(SWP_FRAMECHANGED)` broadcast so the
+  shell immediately re-evaluates taskbar/Alt+Tab presence. `ToggleStyle` /
+  `SetStyle` delegate the style computation to `WindowStyleMath` and apply the
   change but do **not** track which HWNDs were excluded — that's the caller's
   job (`ExclusionService`).
 - `ExclusionTracker.cs` — instance-based tracking set for HWNDs AltTabExcluder
-  excluded (vs. natural tool windows). Persisted via `AppSettings` so Quick
-  Exclude can identify our exclusions after restart. `PruneStale` removes
-  invalid HWNDs.
+  excluded (vs. natural tool windows). Stores `(HWND, PID)` pairs so recycled
+  HWNDs (same value, different process) can be detected via `WasExcludedByUs`.
+  Persisted via `AppSettings` so Quick Exclude can identify our exclusions
+  after restart. `PruneStale` removes invalid HWNDs. Backward-compatible with
+  the old flat-array settings format (PID=0 means "unknown").
 - `ExclusionService.cs` — the single entry point for all exclusion operations.
   Orchestrates `WindowManager` (style) + `ExclusionTracker` (tracking):
-  `Toggle`, `SetExcluded`, `IsExcluded`, `WasExcludedByUs`, `RestoreAll`,
-  `PruneStale`. Owned by `Program`, injected into `RuleEngine`,
-  `TrayIconManager`, and `WindowEnumerationService`.
+  `Toggle`, `SetExcluded`, `IsExcluded`, `WasExcludedByUs` (PID-aware),
+  `RestoreAll` (skips recycled HWNDs + clears tracker), `PruneStale`. Owned
+  by `Program`, injected into `RuleEngine`, `TrayIconManager`, and
+  `WindowEnumerationService`.
 
 ### Services (`Services/`)
 
@@ -163,7 +172,7 @@ Three APIs use raw `DllImport` instead of CsWin32 (by design — see file docs):
 
 | File | Contents |
 |------|----------|
-| `%APPDATA%\AltTabExcluder\settings.json` | Hotkey config, enabled state, excluded-by-us HWND list |
+| `%APPDATA%\AltTabExcluder\settings.json` | Hotkey config, enabled state, excluded-by-us HWND+PID list |
 | `%APPDATA%\AltTabExcluder\rules.json` | Persistent per-process exclusion rules |
 | `%APPDATA%\AltTabExcluder\app.log` | Rotating log file (256 KB → `app.log.bak`) |
 
@@ -180,8 +189,9 @@ dotnet test
 
 Tests covering the testable (non-Win32-UI) layers:
 
-- **`WindowManagerStyleMathTests`** — pure style-bit math: bit manipulation,
-  other-bit preservation, idempotency, round-trip correctness.
+- **`WindowManagerStyleMathTests`** — pure style-bit math in
+  `WindowStyleMath.cs`: bit manipulation, other-bit preservation, idempotency,
+  round-trip correctness.
 - **`AppSettingsFormatHotkeyTests`** — `FormatHotkey` / `KeyToString`: default
   combo, NoRepeat stripping, canonical modifier order, all key-code mappings.
 - **`AppSettingsPersistenceTests`** — load/save round-trip, defaults,
@@ -198,16 +208,44 @@ Tests covering the testable (non-Win32-UI) layers:
 The main project exposes `InternalsVisibleTo("AltTabExcluder.Tests")` for
 internal constructors and overloads that redirect file I/O to temp paths.
 
+### Integration tests
+
+Integration tests (in `tests/AltTabExcluder.Tests/Integration/`) exercise the
+Win32 interop layer against real (test-created) windows on a live desktop
+session. They are tagged with `[Trait("Category", "Integration")]` and cover:
+
+- **`WindowManagerIntegrationTests`** — style toggling on real windows.
+- **`HotkeyManagerIntegrationTests`** — hotkey registration, conflict
+  detection, and WM_HOTKEY dispatch.
+- **`WindowEventWatcherIntegrationTests`** — rule auto-application to new
+  top-level windows + child window filtering.
+- **`WindowEnumerationServiceIntegrationTests`** — enumeration + filtering.
+- **`ExclusionServiceIntegrationTests`** — toggle/restore/prune orchestration.
+
+Run integration tests separately:
+```powershell
+dotnet test --filter "Category=Integration"
+```
+
+CI runs them in a separate step after the unit test / coverage run. To run
+only unit tests locally (e.g. in a headless context):
+```powershell
+dotnet test --filter "Category!=Integration"
+```
+
 ### Coverage gates
 
-CI enforces two coverage gates (via coverlet + cobertura XML parsing):
+CI enforces a single coverage gate (via coverlet + cobertura XML parsing):
 
-1. **Overall floor (10%)** — catches total regressions.
-2. **Per-file gate (70%)** on the testable logic layers: `AppSettings.cs`,
-   `RuleEngine.cs`, `ExclusionTracker.cs`, `ProcessRule.cs`, `AppLogger.cs`.
-   `WindowManager.cs` is excluded from this gate — its pure math is tested via
-   `WindowManagerStyleMathTests`, but the Win32 methods drag file-level
-   coverage below the threshold.
+- **Per-file gate (70%)** on the testable logic layers: `WindowStyleMath.cs`,
+  `AppSettings.cs`, `RuleEngine.cs`, `ExclusionTracker.cs`, `ProcessRule.cs`,
+  `AppLogger.cs`. Every testable logic layer must be ≥70% line-covered.
+
+The overall coverage number is printed for information but does not fail the
+build — it is low because Win32/UI/entry-point code requires a live desktop
+session. `WindowManager.cs` is excluded from coverage measurement because its
+pure style-bit math was extracted into `WindowStyleMath.cs` (which IS gated);
+the remaining Win32 interop methods are untestable without a desktop session.
 
 Win32/UI/entry-point files are excluded from coverage measurement because
 they require a live Windows desktop session.

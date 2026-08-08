@@ -1,6 +1,17 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace AltTabExcluder.Services;
+
+/// <summary>
+/// A persisted excluded-by-us HWND entry: the HWND value (as a long) and the
+/// PID at the time of exclusion. The PID is used to detect HWND recycling.
+/// </summary>
+public sealed record ExcludedHwndEntry
+{
+    public long Hwnd { get; init; }
+    public uint Pid { get; init; }
+}
 
 /// <summary>
 /// Persisted app settings stored at <c>%APPDATA%\AltTabExcluder\settings.json</c>.
@@ -14,6 +25,7 @@ public sealed class AppSettings
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Converters = { new ExcludedByUsConverter() },
     };
 
     private static readonly string DefaultDirPath = Path.Combine(
@@ -32,10 +44,11 @@ public sealed class AppSettings
     /// Persisted so the user's enable/disable choice survives restarts.</summary>
     public bool HotkeyEnabled { get; set; } = true;
 
-    /// <summary>HWNDs (as long values) that AltTabExcluder has excluded.
+    /// <summary>HWND+PID pairs that AltTabExcluder has excluded.
     /// Persisted so Quick Exclude can still identify our exclusions after
-    /// restart. Stale entries (closed windows) are harmless.</summary>
-    public List<long> ExcludedByUs { get; set; } = new();
+    /// restart. The PID is used to detect HWND recycling. Stale entries
+    /// (closed windows) are pruned periodically.</summary>
+    public List<ExcludedHwndEntry> ExcludedByUs { get; set; } = new();
 
     /// <summary>Human-readable label for the current hotkey.</summary>
     public string HotkeyLabel => FormatHotkey(HotkeyModifiers, HotkeyKey);
@@ -133,4 +146,54 @@ public sealed class AppSettings
         Win32Constants.VK_OEM_6 => "]",
         _ => $"0x{key:X2}",
     };
+}
+
+/// <summary>
+/// Custom JSON converter for <see cref="AppSettings.ExcludedByUs"/> that
+/// handles backward compatibility with the old flat-array format
+/// (<c>[12345, 67890]</c>) by treating bare numbers as HWNDs with PID=0
+/// (unknown). The new format uses objects (<c>[{"hwnd":12345,"pid":5678}]</c>).
+/// </summary>
+file sealed class ExcludedByUsConverter : JsonConverter<List<ExcludedHwndEntry>>
+{
+    public override List<ExcludedHwndEntry>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.StartArray)
+            return new List<ExcludedHwndEntry>();
+
+        var list = new List<ExcludedHwndEntry>();
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+        {
+            if (reader.TokenType == JsonTokenType.Number)
+            {
+                // Old format: bare number = HWND, PID unknown (0).
+                long hwnd = reader.GetInt64();
+                list.Add(new ExcludedHwndEntry { Hwnd = hwnd, Pid = 0 });
+            }
+            else if (reader.TokenType == JsonTokenType.StartObject)
+            {
+                // New format: object with "hwnd" and "pid" properties.
+                using var doc = JsonDocument.ParseValue(ref reader);
+                var root = doc.RootElement;
+                long hwnd = root.TryGetProperty("hwnd", out var hwndProp) ? hwndProp.GetInt64() : 0;
+                uint pid = root.TryGetProperty("pid", out var pidProp) ? pidProp.GetUInt32() : 0;
+                list.Add(new ExcludedHwndEntry { Hwnd = hwnd, Pid = pid });
+            }
+            // Skip any other token types gracefully.
+        }
+        return list;
+    }
+
+    public override void Write(Utf8JsonWriter writer, List<ExcludedHwndEntry> value, JsonSerializerOptions options)
+    {
+        writer.WriteStartArray();
+        foreach (var entry in value)
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("hwnd", entry.Hwnd);
+            writer.WriteNumber("pid", entry.Pid);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+    }
 }

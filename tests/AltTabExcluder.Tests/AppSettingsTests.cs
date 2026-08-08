@@ -136,7 +136,11 @@ public class AppSettingsPersistenceTests : IDisposable
             HotkeyModifiers = Win32Constants.MOD_CONTROL | Win32Constants.MOD_SHIFT,
             HotkeyKey = 0x44, // 'D'
             HotkeyEnabled = false,
-            ExcludedByUs = new List<long> { 12345, 67890 },
+            ExcludedByUs = new List<ExcludedHwndEntry>
+            {
+                new() { Hwnd = 12345, Pid = 100 },
+                new() { Hwnd = 67890, Pid = 200 },
+            },
         };
         settings.Save(_settingsPath);
 
@@ -145,7 +149,11 @@ public class AppSettingsPersistenceTests : IDisposable
         Assert.Equal(Win32Constants.MOD_CONTROL | Win32Constants.MOD_SHIFT, loaded.HotkeyModifiers);
         Assert.Equal(0x44u, loaded.HotkeyKey);
         Assert.False(loaded.HotkeyEnabled);
-        Assert.Equal(new List<long> { 12345, 67890 }, loaded.ExcludedByUs);
+        Assert.Equal(2, loaded.ExcludedByUs.Count);
+        Assert.Equal(12345L, loaded.ExcludedByUs[0].Hwnd);
+        Assert.Equal(100u, loaded.ExcludedByUs[0].Pid);
+        Assert.Equal(67890L, loaded.ExcludedByUs[1].Hwnd);
+        Assert.Equal(200u, loaded.ExcludedByUs[1].Pid);
     }
 
     [Fact]
@@ -168,6 +176,29 @@ public class AppSettingsPersistenceTests : IDisposable
 
         Assert.Equal(Win32Constants.DefaultHotkeyModifiers, settings.HotkeyModifiers);
         Assert.True(settings.HotkeyEnabled);
+    }
+
+    [Fact]
+    public void Load_WithOldFlatArrayFormat_MigratesToEntriesWithPidZero()
+    {
+        // Old format: ExcludedByUs was a flat array of longs.
+        string oldFormat = """
+        {
+          "hotkeyModifiers": 9,
+          "hotkeyKey": 88,
+          "hotkeyEnabled": true,
+          "excludedByUs": [12345, 67890]
+        }
+        """;
+        File.WriteAllText(_settingsPath, oldFormat);
+
+        var settings = AppSettings.Load(_settingsPath);
+
+        Assert.Equal(2, settings.ExcludedByUs.Count);
+        Assert.Equal(12345L, settings.ExcludedByUs[0].Hwnd);
+        Assert.Equal(0u, settings.ExcludedByUs[0].Pid); // PID unknown from old format
+        Assert.Equal(67890L, settings.ExcludedByUs[1].Hwnd);
+        Assert.Equal(0u, settings.ExcludedByUs[1].Pid);
     }
 
     [Fact]

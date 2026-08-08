@@ -44,8 +44,12 @@ internal static class Program
 
             // Build the exclusion stack: tracker (state) + service (orchestration).
             var tracker = new ExclusionTracker();
-            tracker.Load(settings.ExcludedByUs);
+            tracker.Load(settings.ExcludedByUs.Select(e => (e.Hwnd, e.Pid)));
             var exclusion = new ExclusionService(tracker);
+
+            // Prune stale HWNDs on startup — windows from the previous session
+            // may have closed, and their HWNDs may have been recycled.
+            exclusion.PruneStale();
 
             // RuleEngine applies rules via the exclusion service callback.
             var rules = new RuleEngine((hwnd, excluded) => exclusion.SetExcluded(hwnd, excluded));

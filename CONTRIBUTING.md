@@ -37,15 +37,26 @@ All tests should pass before you start.
 # Build (analyzers run at build time; warnings must be clean)
 dotnet build -c Debug
 
-# Tests
-dotnet test
+# Unit tests (excludes integration tests that need a desktop session)
+dotnet test --filter "Category!=Integration"
+
+# Integration tests (requires a live desktop session)
+dotnet test --filter "Category=Integration"
 
 # Formatting — must report no changes
-dotnet format AltTabExcluder.sln --verify-no-changes --no-restore
+scripts\format-check.ps1
 ```
 
 CI runs these same checks plus a Release build and coverage gates, so a green
 local run almost always means a green CI run.
+
+### Format scripts
+
+- `scripts\format.ps1` — runs `dotnet format` to auto-fix style issues.
+- `scripts\format-check.ps1` — runs `dotnet format --verify-no-changes` (the
+  same check CI runs). Exits non-zero on drift.
+- `scripts\install-hooks.ps1` — installs a git pre-commit hook that runs the
+  format check on every commit. Opt-in — run it once to enable.
 
 ## Code style
 
@@ -70,11 +81,13 @@ Key conventions already in use:
 ## Testing
 
 The testable layers (pure logic, no Win32/UI) are unit-tested in
-`tests/AltTabExcluder.Tests/`. Win32/UI/entry-point code is **not** unit-tested
-because it requires a live desktop session — it's covered by manual testing.
+`tests/AltTabExcluder.Tests/`. Win32/UI code is covered by integration tests
+(tagged `Category=Integration`) that exercise real windows on a live desktop
+session.
 
 CI enforces a **per-file gate of 70%** on the testable logic layers
-(`AppSettings`, `RuleEngine`, `ExclusionTracker`, `ProcessRule`, `AppLogger`).
+(`WindowStyleMath`, `AppSettings`, `RuleEngine`, `ExclusionTracker`,
+`ProcessRule`, `AppLogger`).
 If you change one of these files, make sure its coverage stays above the gate.
 
 When adding a new testable logic class, add it to the `$testableFiles` list in

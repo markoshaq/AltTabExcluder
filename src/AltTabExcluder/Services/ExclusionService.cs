@@ -16,6 +16,11 @@ namespace AltTabExcluder.Services;
 /// <see cref="TrayIconManager"/>, <see cref="WindowEnumerationService"/>, and
 /// <c>TrayEventCoordinator</c>.
 /// </para>
+/// <para>
+/// <see cref="WasExcludedByUs"/> is identity-aware: it checks that the window's
+/// current PID matches the PID stored at exclusion time, so recycled HWNDs
+/// (same value, different process) are correctly rejected.
+/// </para>
 /// </summary>
 public sealed class ExclusionService
 {
@@ -35,9 +40,14 @@ public sealed class ExclusionService
 
     /// <summary>
     /// Returns <c>true</c> if this window was excluded by AltTabExcluder (not just
-    /// naturally carrying <c>WS_EX_TOOLWINDOW</c>).
+    /// naturally carrying <c>WS_EX_TOOLWINDOW</c>). Identity-aware: checks that
+    /// the window's current PID matches the stored PID to detect HWND recycling.
     /// </summary>
-    public bool WasExcludedByUs(IntPtr hwnd) => Tracker.Contains(hwnd);
+    public bool WasExcludedByUs(IntPtr hwnd)
+    {
+        uint currentPid = GetPidForHwnd(hwnd);
+        return Tracker.WasExcludedByUs(hwnd, currentPid);
+    }
 
     /// <summary>
     /// Toggles Alt+Tab visibility for <paramref name="hwnd"/>. When excluded, the
@@ -64,26 +74,37 @@ public sealed class ExclusionService
 
     /// <summary>
     /// Un-excludes every window that AltTabExcluder excluded. Natural tool
-    /// windows (not in the tracker) are left untouched. Returns the number of
-    /// windows restored.
+    /// windows (not in the tracker) are left untouched. Recycled HWNDs (current
+    /// PID doesn't match stored PID) are skipped and removed from the tracker.
+    /// Returns the number of windows restored. The tracker is cleared after
+    /// restoring so stale entries are not persisted on shutdown.
     /// </summary>
     public int RestoreAll()
     {
         Tracker.PruneStale();
         var handles = Tracker.Handles.ToList();
         int count = 0;
-        foreach (var hwnd in handles)
+        foreach (var entry in handles)
         {
+            // Identity check: skip recycled HWNDs (different PID).
+            uint currentPid = GetPidForHwnd(entry.Hwnd);
+            if (!Tracker.WasExcludedByUs(entry.Hwnd, currentPid))
+            {
+                Tracker.Remove(entry.Hwnd);
+                continue;
+            }
+
             try
             {
-                WindowManager.SetStyle(hwnd, excluded: false);
+                WindowManager.SetStyle(entry.Hwnd, excluded: false);
                 count++;
             }
             catch (Exception ex)
             {
-                AppLogger.LogWarning(ex, $"RestoreAll failed for HWND {hwnd}");
+                AppLogger.LogWarning(ex, $"RestoreAll failed for HWND {entry.Hwnd}");
             }
         }
+        Tracker.Clear();
         return count;
     }
 
@@ -92,4 +113,22 @@ public sealed class ExclusionService
     /// to prevent stale entries from accumulating.
     /// </summary>
     public void PruneStale() => Tracker.PruneStale();
+
+    /// <summary>Gets the PID for the given HWND via GetWindowThreadProcessId.</summary>
+    private static uint GetPidForHwnd(IntPtr hwnd)
+    {
+        try
+        {
+            unsafe
+            {
+                uint pid;
+                _ = PInvoke.GetWindowThreadProcessId((HWND)hwnd, &pid);
+                return pid;
+            }
+        }
+        catch
+        {
+            return 0;
+        }
+    }
 }

@@ -14,7 +14,7 @@ namespace AltTabExcluder.Tray;
 /// logic: hotkey toggle, hotkey change, restore-all, startup toggle, about,
 /// restart-as-admin, and the global hotkey press itself.
 /// </summary>
-internal sealed class TrayEventCoordinator
+internal sealed class TrayEventCoordinator : IDisposable
 {
     private readonly TrayIconManager _tray;
     private readonly HotkeyManager _hotkey;
@@ -22,6 +22,11 @@ internal sealed class TrayEventCoordinator
     private readonly WindowEventWatcher _watcher;
     private readonly AppSettings _settings;
     private readonly ExclusionService _exclusion;
+
+    // Periodic prune timer — removes stale HWNDs from the tracker every 60
+    // seconds so recycled handles don't accumulate even if the user never
+    // opens the tray menu.
+    private readonly System.Windows.Forms.Timer _pruneTimer;
 
     /// <summary>
     /// Called by <see cref="OnRestartRequested"/> after the elevated process
@@ -54,6 +59,17 @@ internal sealed class TrayEventCoordinator
         _exclusion = exclusion;
         _onRestartTeardown = onRestartTeardown;
         _onExit = onExit;
+
+        // Start the periodic prune timer (60-second interval).
+        _pruneTimer = new System.Windows.Forms.Timer { Interval = 60_000 };
+        _pruneTimer.Tick += (_, _) => _exclusion.PruneStale();
+        _pruneTimer.Start();
+    }
+
+    public void Dispose()
+    {
+        _pruneTimer.Stop();
+        _pruneTimer.Dispose();
     }
 
     /// <summary>
@@ -271,7 +287,10 @@ internal sealed class TrayEventCoordinator
         // 2. New process is starting — persist state so it loads fresh exclusions.
         PersistExcludedByUs();
 
-        // 3. Dispose services (unregister hotkey, unhook events, hide tray icon).
+        // 3. Dispose services (unregister hotkey, unhook events, hide tray icon,
+        //    stop the prune timer).
+        _pruneTimer.Stop();
+        _pruneTimer.Dispose();
         _watcher.Dispose();
         _hotkey.Dispose();
         _tray.Dispose();
@@ -285,16 +304,20 @@ internal sealed class TrayEventCoordinator
     {
         // Persist the excluded-by-us set so Quick Exclude works after restart.
         PersistExcludedByUs();
+        _pruneTimer.Stop();
+        _pruneTimer.Dispose();
         _watcher.Dispose();
         _hotkey.Dispose();
         _tray.Dispose();
         _onExit();
     }
 
-    /// <summary>Saves the current excluded-by-us HWND set to settings.</summary>
+    /// <summary>Saves the current excluded-by-us HWND+PID set to settings.</summary>
     private void PersistExcludedByUs()
     {
-        _settings.ExcludedByUs = _exclusion.Tracker.GetForSave().ToList();
+        _settings.ExcludedByUs = _exclusion.Tracker.GetForSave()
+            .Select(e => new ExcludedHwndEntry { Hwnd = e.hwnd, Pid = e.pid })
+            .ToList();
         _settings.Save();
     }
 }
