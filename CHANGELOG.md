@@ -7,12 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-08
+
 ### Added
-- Live coverage badge in README (shields.io endpoint reading a JSON file
-  pushed to a `badges` branch by CI on every main push).
-- Taskbar limitation documented in the README and the About dialog
-  (excluded windows also disappear from the taskbar — inherent to
-  `WS_EX_TOOLWINDOW`).
+- 27 integration tests (tagged `Category=Integration`) covering the Win32
+  layer: `WindowManager` style toggling, `HotkeyManager` registration and
+  WM_HOTKEY dispatch, `WindowEventWatcher` rule auto-application and child
+  filtering, `WindowEnumerationService` enumeration and filtering, and
+  `ExclusionService` toggle/restore/prune orchestration.
+- HWND recycling mitigation: `ExclusionTracker` now stores `(HWND, PID)`
+  pairs so recycled HWNDs (same value, different process) are detected via
+  PID mismatch in `WasExcludedByUs` and `RestoreAll`.
+- Periodic prune timer (60s) in `TrayEventCoordinator` plus startup prune in
+  `Program.cs` to clean stale HWNDs even if the user never opens the tray menu.
+- `RestoreAll` now skips recycled HWNDs and clears the tracker after restoring.
+- Release zip now includes `checksums.sha256`, `README.txt`, and `LICENSE.txt`
+  alongside the exe. The checksum file is also uploaded as a standalone
+  release asset.
+- `scripts/format.ps1`, `scripts/format-check.ps1`, and
+  `scripts/install-hooks.ps1` for local format workflow.
+- `docs/USAGE.md`, `docs/HOW_IT_WORKS.md`, `docs/TESTING.md` — detailed
+  content moved out of the README into sub-documents.
+- `WindowStyleMath.cs` — pure style-bit math extracted from `WindowManager`
+  for independent coverage gating.
+- Backward-compatible `AppSettings` serialization: old flat HWND arrays
+  migrate to `{hwnd, pid}` objects with PID=0 (unknown).
+
+### Changed
+- Simplified coverage gates: replaced the dual-gate system (10% overall
+  floor + 70% per-file) with a single per-file 70% gate on all testable
+  logic layers. The overall number is now informational only.
+- `ExclusionTracker` is now pure (no Win32 calls). Win32-dependent logic
+  (PID lookup, `IsWindow` pruning) moved to `ExclusionService`.
+- README restructured from ~280 lines to ~86 lines with links to sub-docs.
+- CI runs integration tests in a separate step after the unit test /
+  coverage run.
+- `coverlet.runsettings` excludes `WindowManager.cs` and
+  `TrayEventCoordinator.cs` from coverage measurement.
+
+### Fixed
+- `RestoreAll` was not clearing the tracker after restoring windows,
+  causing stale entries to persist across restarts.
 
 ## [0.1.0] - 2026-08-08
 
@@ -68,5 +103,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Test `Dispose` methods call `GC.SuppressFinalize` (CA1816).
 - `CA1707` scoped off for test files (xUnit's `Method_Scenario_Expected` convention).
 
-[Unreleased]: https://github.com/markoshaq/AltTabExcluder/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/markoshaq/AltTabExcluder/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/markoshaq/AltTabExcluder/releases/tag/v0.2.0
 [0.1.0]: https://github.com/markoshaq/AltTabExcluder/releases/tag/v0.1.0
