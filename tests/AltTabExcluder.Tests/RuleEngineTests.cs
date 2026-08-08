@@ -24,6 +24,7 @@ public class RuleEngineTests : IDisposable
     {
         try { Directory.Delete(_tempDir, recursive: true); }
         catch { /* best effort cleanup */ }
+        GC.SuppressFinalize(this);
     }
 
     [Fact]

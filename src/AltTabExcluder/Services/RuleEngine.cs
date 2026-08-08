@@ -22,7 +22,7 @@ public sealed class RuleEngine
     private readonly string _dirPath;
     private readonly object _gate = new();
     private readonly Action<IntPtr, bool>? _applyExclusion;
-    private Dictionary<string, ProcessRule> _rules; // key = lowercased process name
+    private readonly Dictionary<string, ProcessRule> _rules; // key = lowercased process name
 
     /// <summary>
     /// Creates a RuleEngine that persists to the default

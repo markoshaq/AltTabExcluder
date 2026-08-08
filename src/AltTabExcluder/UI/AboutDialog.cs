@@ -34,8 +34,10 @@ public sealed class AboutDialog : Form
 
         var headerPanel = new Panel
         {
-            Left = 16, Top = 16,
-            Width = 400, Height = 56,
+            Left = 16,
+            Top = 16,
+            Width = 400,
+            Height = 56,
         };
 
         var icon = LoadAppIcon();
@@ -44,8 +46,10 @@ public sealed class AboutDialog : Form
             var iconBox = new PictureBox
             {
                 Image = icon.ToBitmap(),
-                Left = 0, Top = 0,
-                Width = 32, Height = 32,
+                Left = 0,
+                Top = 0,
+                Width = 32,
+                Height = 32,
                 SizeMode = PictureBoxSizeMode.StretchImage,
             };
             headerPanel.Controls.Add(iconBox);
@@ -55,8 +59,10 @@ public sealed class AboutDialog : Form
         {
             Text = "AltTabExcluder",
             Font = new Font(SystemFonts.DefaultFont.FontFamily, 14, FontStyle.Bold),
-            Left = 44, Top = 0,
-            Width = 340, Height = 24,
+            Left = 44,
+            Top = 0,
+            Width = 340,
+            Height = 24,
         };
         headerPanel.Controls.Add(titleLabel);
 
@@ -64,8 +70,10 @@ public sealed class AboutDialog : Form
         {
             Text = $"Version {version}",
             ForeColor = SystemColors.GrayText,
-            Left = 44, Top = 26,
-            Width = 340, Height = 18,
+            Left = 44,
+            Top = 26,
+            Width = 340,
+            Height = 18,
         };
         headerPanel.Controls.Add(versionLabel);
 
@@ -76,8 +84,10 @@ public sealed class AboutDialog : Form
         var descLabel = new Label
         {
             Text = "Exclude specific windows from the Alt+Tab switcher.",
-            Left = 16, Top = 80,
-            Width = 400, Height = 20,
+            Left = 16,
+            Top = 80,
+            Width = 400,
+            Height = 20,
         };
         Controls.Add(descLabel);
 
@@ -95,8 +105,10 @@ public sealed class AboutDialog : Form
                 "\r\n" +
                 "The app toggles the WS_EX_TOOLWINDOW / WS_EX_APPWINDOW extended\r\n" +
                 "window styles on target window handles.",
-            Left = 16, Top = 108,
-            Width = 400, Height = 130,
+            Left = 16,
+            Top = 108,
+            Width = 400,
+            Height = 130,
         };
         Controls.Add(howItWorks);
 
@@ -105,8 +117,10 @@ public sealed class AboutDialog : Form
         var currentHotkeyLabel = new Label
         {
             Text = $"Current hotkey: {hotkeyLabel}",
-            Left = 16, Top = 248,
-            Width = 400, Height = 20,
+            Left = 16,
+            Top = 248,
+            Width = 400,
+            Height = 20,
         };
         Controls.Add(currentHotkeyLabel);
 
@@ -116,8 +130,10 @@ public sealed class AboutDialog : Form
         {
             Text = $"Settings & rules: {dataDir}",
             ForeColor = SystemColors.GrayText,
-            Left = 16, Top = 274,
-            Width = 400, Height = 20,
+            Left = 16,
+            Top = 274,
+            Width = 400,
+            Height = 20,
         };
         Controls.Add(dataLabel);
 
@@ -126,8 +142,10 @@ public sealed class AboutDialog : Form
         var devLabel = new LinkLabel
         {
             Text = "Developed by Marko  —  github.com/markoshaq",
-            Left = 16, Top = 300,
-            Width = 400, Height = 20,
+            Left = 16,
+            Top = 300,
+            Width = 400,
+            Height = 20,
         };
         devLabel.LinkArea = new LinkArea("Developed by Marko  —  ".Length, "github.com/markoshaq".Length);
         devLabel.LinkClicked += (_, _) =>
@@ -142,7 +160,8 @@ public sealed class AboutDialog : Form
         var closeButton = new Button
         {
             Text = "Close",
-            Left = 336, Top = 388,
+            Left = 336,
+            Top = 388,
             Width = 80,
             DialogResult = DialogResult.OK,
         };

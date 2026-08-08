@@ -44,13 +44,15 @@ public sealed class HotkeyPickerDialog : Form
         _label = new Label
         {
             Text = "Press the key combination you want to use:",
-            Left = 16, Top = 16,
+            Left = 16,
+            Top = 16,
             Width = 320,
         };
 
         _inputBox = new TextBox
         {
-            Left = 16, Top = 44,
+            Left = 16,
+            Top = 44,
             Width = 320,
             ReadOnly = true,
             TabIndex = 0,
@@ -60,7 +62,8 @@ public sealed class HotkeyPickerDialog : Form
         _okButton = new Button
         {
             Text = "OK",
-            Left = 160, Top = 100,
+            Left = 160,
+            Top = 100,
             Width = 80,
             // DialogResult is set conditionally in the click handler — a bare
             // key with no modifier would globally intercept that key in every
@@ -70,7 +73,8 @@ public sealed class HotkeyPickerDialog : Form
         _cancelButton = new Button
         {
             Text = "Cancel",
-            Left = 256, Top = 100,
+            Left = 256,
+            Top = 100,
             Width = 80,
             DialogResult = DialogResult.Cancel,
         };

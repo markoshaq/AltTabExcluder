@@ -6,6 +6,11 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
+    <!-- Enable the latest .NET analyzer ruleset and enforce editorconfig
+         style rules at build time so style regressions surface locally. -->
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Default</AnalysisMode>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
 
     <!-- WinForms for the NotifyIcon tray control and message-only window -->
     <UseWindowsForms>true</UseWindowsForms>

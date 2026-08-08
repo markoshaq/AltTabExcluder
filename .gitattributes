@@ -1,0 +1,13 @@
+# Normalize line endings — see .editorconfig (end_of_line = crlf).
+# `text=auto` lets Git normalize text files in the repo (LF) and check them
+# out with the platform's native EOL. On Windows (core.autocrlf=true) that
+# yields CRLF working files, matching the editorconfig and `dotnet format`.
+* text=auto
+
+# Binary assets — never normalize.
+*.ico binary
+*.png binary
+*.gif binary
+*.jpg binary
+*.exe binary
+*.zip binary
