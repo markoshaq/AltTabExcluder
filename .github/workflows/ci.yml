@@ -211,14 +211,25 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Publish single-file exe
-        run: dotnet publish -c Release -p:PublishProfile=SingleFile src\AltTabExcluder\AltTabExcluder.csproj
+        # -p:Platform=x64 is required because building the .csproj directly
+        # (not via the .sln) defaults $(Platform) to AnyCPU, which omits the
+        # x64 segment from the output path.
+        run: dotnet publish -c Release -p:Platform=x64 -p:PublishProfile=SingleFile src\AltTabExcluder\AltTabExcluder.csproj
 
       - name: Zip publish output
         shell: pwsh
         run: |
-          $publishDir = "src\AltTabExcluder\bin\x64\Release\net8.0-windows\win-x64\publish"
+          # Find the exe dynamically in case the output path varies.
+          $exe = Get-ChildItem -Recurse -Filter "AltTabExcluder.exe" -Path "src\AltTabExcluder\bin" |
+            Where-Object { $_.DirectoryName -like "*publish*" } |
+            Select-Object -First 1
+          if ($null -eq $exe) {
+            Write-Host "::error::AltTabExcluder.exe not found in publish output."
+            exit 1
+          }
+          Write-Host "Found exe at: $($exe.FullName)"
           # Exclude .pdb (debug symbols) from the release zip
-          Compress-Archive -Path "$publishDir\AltTabExcluder.exe" -DestinationPath "AltTabExcluder-$env:GITHUB_REF_NAME.zip"
+          Compress-Archive -Path $exe.FullName -DestinationPath "AltTabExcluder-$env:GITHUB_REF_NAME.zip"
 
       - name: Create release & upload asset
         shell: pwsh
