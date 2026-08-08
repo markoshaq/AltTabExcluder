@@ -80,14 +80,34 @@ public class WindowEventWatcherIntegrationTests : IDisposable
             });
             Assert.NotNull(_externalProc);
 
-            // Wait for the WinForms window to appear and the watcher's
-            // WinEventHook callback + debounce timer to fire.
-            IntegrationTestHelper.PumpMessages(8000);
+            // Poll for the WinForms window to appear. PowerShell + WinForms
+            // assembly loading can be slow on CI runners, so we poll up to 15s
+            // instead of using a fixed wait. Pump messages throughout so the
+            // watcher's WinEventHook callbacks fire as soon as the window appears.
+            IntPtr windowHwnd = IntPtr.Zero;
+            var pollSw = System.Diagnostics.Stopwatch.StartNew();
+            while (pollSw.ElapsedMilliseconds < 15000 && windowHwnd == IntPtr.Zero)
+            {
+                IntegrationTestHelper.PumpMessages(500);
+                windowHwnd = FindWindowByPidAndTitle(_externalProc.Id, uniqueTitle);
+            }
 
-            // Find the WinForms window by PID + title.
-            IntPtr windowHwnd = FindWindowByPidAndTitle(_externalProc.Id, uniqueTitle);
             Assert.True(windowHwnd != IntPtr.Zero,
                 $"PowerShell WinForms window with title '{uniqueTitle}' should exist (PID={_externalProc.Id})");
+
+            // The watcher may have already applied the rule, or its 300ms debounce
+            // timer may still be pending. Pump messages for a bit longer to let
+            // any deferred TryApply fire.
+            var applySw = System.Diagnostics.Stopwatch.StartNew();
+            while (applySw.ElapsedMilliseconds < 3000)
+            {
+                IntegrationTestHelper.PumpMessages(200);
+                lock (_appliedHandles)
+                {
+                    if (_appliedHandles.Contains(windowHwnd))
+                        break;
+                }
+            }
 
             // The watcher should have applied the rule to this window.
             lock (_appliedHandles)
