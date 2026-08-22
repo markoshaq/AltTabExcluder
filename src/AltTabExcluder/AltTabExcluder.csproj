@@ -37,7 +37,7 @@
 
   <!-- CsWin32: Win32 P/Invoke source generator. Bindings are generated from NativeMethods.txt. -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.Windows.CsWin32" Version="0.3.298">
+    <PackageReference Include="Microsoft.Windows.CsWin32" Version="0.3.321">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <AdditionalFiles Include="NativeMethods.txt" />
